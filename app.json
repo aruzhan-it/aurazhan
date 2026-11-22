@@ -16,13 +16,10 @@
       "package": "com.closedcircle.app",
       "adaptiveIcon": {
         "backgroundColor": "#141518"
-      },
-      "permissions": [
-        "RECORD_AUDIO",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
-      ]
+      }
     },
-    "web": {}
+    "web": {
+      "bundler": "metro"
+    }
   }
 }

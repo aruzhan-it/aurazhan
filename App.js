@@ -16,65 +16,10 @@ import {
   Linking,
   Dimensions,
   PanResponder,
-  AppState,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { createClient } from '@supabase/supabase-js';
 import * as ImagePicker from 'expo-image-picker';
-
-let AsyncStorageMod = null;
-try {
-  AsyncStorageMod = require('@react-native-async-storage/async-storage').default;
-} catch (_) {
-  AsyncStorageMod = null;
-}
-
-if (!globalThis.__CLOSED_CIRCLE_RUNTIME__) {
-  globalThis.__CLOSED_CIRCLE_RUNTIME__ = {
-    storage: new Map(),
-    sessionUserId: null,
-    sessionProfile: null,
-    pinByUser: new Map(),
-  };
-}
-
-const rt = globalThis.__CLOSED_CIRCLE_RUNTIME__;
-
-const localStore = {
-  async getItem(key) {
-    try {
-      if (AsyncStorageMod && typeof AsyncStorageMod.getItem === 'function') {
-        const val = await AsyncStorageMod.getItem(key);
-        if (val !== null && val !== undefined) {
-          rt.storage.set(key, val);
-          return val;
-        }
-      }
-    } catch (_) {}
-    return rt.storage.has(key) ? rt.storage.get(key) : null;
-  },
-  async setItem(key, val) {
-    const str = String(val);
-    rt.storage.set(key, str);
-    try {
-      if (AsyncStorageMod && typeof AsyncStorageMod.setItem === 'function') {
-        await AsyncStorageMod.setItem(key, str);
-      }
-    } catch (_) {}
-  },
-  async removeItem(key) {
-    rt.storage.delete(key);
-    try {
-      if (AsyncStorageMod && typeof AsyncStorageMod.removeItem === 'function') {
-        await AsyncStorageMod.removeItem(key);
-      }
-    } catch (_) {}
-  },
-};
-
-const SESSION_USER_ID_KEY = '@closed_circle_session_user_id_v2';
-const SESSION_PROFILE_KEY = '@closed_circle_session_profile_v2';
-const LOCAL_PIN_KEY_PREFIX = '@closed_circle_pin_v2_';
 
 let CHAT_BG_SOURCE = null;
 try {
@@ -129,47 +74,53 @@ const STICKER_PACK = [
 const THEMES = {
   dark: {
     isDark: true,
-    bg: '#141518',
-    surface: '#1d1f24',
-    surfaceAlt: '#262930',
-    border: '#2f333d',
-    text: '#f3f4f6',
-    textMuted: '#8d92a0',
-    accent: '#e05a67',
-    accentSoft: 'rgba(224, 90, 103, 0.16)',
-    accentText: '#f27c88',
-    bubbleMine: '#cf5360',
-    bubblePeer: '#23262d',
+    bg: '#0e1621',
+    surface: '#17212b',
+    surfaceAlt: '#242f3d',
+    border: '#2b394a',
+    text: '#f5f7fa',
+    textMuted: '#7f91a4',
+    accent: '#5288c1',
+    accentSoft: 'rgba(82, 136, 193, 0.18)',
+    accentText: '#6ab2ff',
+    bubbleMine: '#2b5278',
+    bubblePeer: '#182533',
     bubbleMineText: '#ffffff',
-    bubblePeerText: '#f3f4f6',
-    noteBubble: '#23262e',
-    noteBubbleBorder: '#353a46',
+    bubblePeerText: '#f5f7fa',
+    noteBubble: '#1d2b3a',
+    noteBubbleBorder: '#2d4157',
     dangerBg: 'rgba(239, 68, 68, 0.16)',
     dangerText: '#f87171',
   },
   light: {
     isDark: false,
-    bg: '#f4f5f7',
+    bg: '#e6ebf0',
     surface: '#ffffff',
-    surfaceAlt: '#eef0f4',
-    border: '#e2e5ec',
-    text: '#16181d',
-    textMuted: '#6b707d',
-    accent: '#d64c5a',
-    accentSoft: 'rgba(214, 76, 90, 0.12)',
-    accentText: '#d64c5a',
-    bubbleMine: '#d64c5a',
+    surfaceAlt: '#f0f3f6',
+    border: '#dfe5ec',
+    text: '#1c242b',
+    textMuted: '#707c8a',
+    accent: '#3390ec',
+    accentSoft: 'rgba(51, 144, 236, 0.14)',
+    accentText: '#2481dc',
+    bubbleMine: '#effdde',
     bubblePeer: '#ffffff',
-    bubbleMineText: '#ffffff',
-    bubblePeerText: '#16181d',
-    noteBubble: '#fdf2f3',
-    noteBubbleBorder: '#f6cbd0',
+    bubbleMineText: '#1c242b',
+    bubblePeerText: '#1c242b',
+    noteBubble: '#f2f7fc',
+    noteBubbleBorder: '#cde0f5',
     dangerBg: '#fef2f2',
     dangerText: '#dc2626',
   },
 };
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+function notifyUser(msg) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
+    window.alert(msg);
+  } else {
+    alert(msg);
+  }
+}
 
 function normalizeId(raw) {
   return (raw || '')
@@ -177,10 +128,6 @@ function normalizeId(raw) {
     .toLowerCase()
     .replace(/^@+/, '')
     .replace(/\s+/g, '_');
-}
-
-function cleanPinDigits(raw) {
-  return String(raw || '').replace(/\D/g, '').slice(0, 4);
 }
 
 function generateUniqueId() {
@@ -322,7 +269,7 @@ function splitSpoilerSegments(rawText) {
   return segments.length > 0 ? segments : [{ type: 'plain', value: rawText }];
 }
 
-function SpoilerTextRenderer({ text, isMine, theme, msgId }) {
+function SpoilerTextRenderer({ text, textColor, theme, msgId }) {
   const [revealedMap, setRevealedMap] = useState({});
   const segments = splitSpoilerSegments(text);
 
@@ -335,13 +282,7 @@ function SpoilerTextRenderer({ text, isMine, theme, msgId }) {
       {segments.map((seg, idx) => {
         if (seg.type === 'plain') {
           return (
-            <Text
-              key={`${msgId}_p_${idx}`}
-              style={[
-                styles.msgText,
-                { color: isMine ? theme.bubbleMineText : theme.bubblePeerText },
-              ]}
-            >
+            <Text key={`${msgId}_p_${idx}`} style={[styles.msgText, { color: textColor }]}>
               {seg.value}
             </Text>
           );
@@ -365,8 +306,8 @@ function SpoilerTextRenderer({ text, isMine, theme, msgId }) {
               style={[
                 styles.spoilerChipText,
                 {
-                  color: isMine ? theme.bubbleMineText : theme.bubblePeerText,
-                  opacity: isOpen ? 1 : 0.15,
+                  color: textColor,
+                  opacity: isOpen ? 1 : 0.14,
                 },
               ]}
             >
@@ -384,7 +325,7 @@ function SpoilerTextRenderer({ text, isMine, theme, msgId }) {
   );
 }
 
-function AvatarCircle({ user, theme, size = 50, isGroup = false, isSelf = false }) {
+function AvatarCircle({ user, theme, size = 48, isGroup = false, isSelf = false }) {
   return (
     <View style={{ width: size, height: size }}>
       {isGroup ? (
@@ -447,117 +388,6 @@ function AvatarCircle({ user, theme, size = 50, isGroup = false, isSelf = false 
         </View>
       )}
     </View>
-  );
-}
-
-function PinLockScreen({ theme, profile, expectedPin, onUnlock, onForgotPin }) {
-  const [entered, setEntered] = useState('');
-  const [errorText, setErrorText] = useState('');
-  const cleanExpected = cleanPinDigits(expectedPin);
-
-  const handleDigit = (digit) => {
-    if (entered.length >= 4) return;
-    setErrorText('');
-    const next = entered + digit;
-    setEntered(next);
-
-    if (next.length === 4) {
-      if (next === cleanExpected) {
-        setTimeout(() => {
-          setEntered('');
-          setErrorText('');
-          onUnlock();
-        }, 90);
-      } else {
-        setTimeout(() => {
-          setErrorText('Неверный PIN-код');
-          setEntered('');
-        }, 160);
-      }
-    }
-  };
-
-  const handleBackspace = () => {
-    setErrorText('');
-    setEntered((prev) => prev.slice(0, -1));
-  };
-
-  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'forgot', '0', 'del'];
-
-  return (
-    <SafeAreaView style={[styles.pinScreen, { backgroundColor: theme.bg }]} edges={['top', 'bottom']}>
-      <View style={styles.pinTopBlock}>
-        <AvatarCircle user={profile} theme={theme} size={64} />
-        <Text style={[styles.pinTitle, { color: theme.text }]}>Введите PIN-код</Text>
-        <Text style={[styles.pinSub, { color: theme.textMuted }]}>
-          {profile?.display_name || `@${profile?.login || ''}`}
-        </Text>
-
-        <View style={styles.pinDotsRow}>
-          {[0, 1, 2, 3].map((idx) => {
-            const filled = idx < entered.length;
-            return (
-              <View
-                key={idx}
-                style={[
-                  styles.pinDot,
-                  {
-                    backgroundColor: filled ? theme.accent : 'transparent',
-                    borderColor: errorText ? theme.dangerText : filled ? theme.accent : theme.border,
-                  },
-                ]}
-              />
-            );
-          })}
-        </View>
-
-        {errorText ? (
-          <Text style={[styles.pinErrorText, { color: theme.dangerText }]}>{errorText}</Text>
-        ) : (
-          <View style={{ height: 20 }} />
-        )}
-      </View>
-
-      <View style={styles.pinPadGrid}>
-        {keys.map((k) => {
-          if (k === 'forgot') {
-            return (
-              <TouchableOpacity
-                key={k}
-                style={styles.pinKeyGhost}
-                onPress={onForgotPin}
-              >
-                <Text style={[styles.pinKeyGhostText, { color: theme.textMuted }]}>Забыли?</Text>
-              </TouchableOpacity>
-            );
-          }
-          if (k === 'del') {
-            return (
-              <TouchableOpacity
-                key={k}
-                style={styles.pinKeyGhost}
-                onPress={handleBackspace}
-              >
-                <Text style={[styles.pinKeyGhostText, { color: theme.text }]}>⌫</Text>
-              </TouchableOpacity>
-            );
-          }
-          return (
-            <TouchableOpacity
-              key={k}
-              activeOpacity={0.75}
-              style={[
-                styles.pinKeyCircle,
-                { backgroundColor: theme.surface, borderColor: theme.border },
-              ]}
-              onPress={() => handleDigit(k)}
-            >
-              <Text style={[styles.pinKeyDigit, { color: theme.text }]}>{k}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </SafeAreaView>
   );
 }
 
@@ -637,6 +467,8 @@ function CallScreenModal({ callState, theme, onHangup }) {
 }
 
 function PhotoViewerModal({ galleryState, onClose }) {
+  const screenWidth = Dimensions.get('window').width;
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -670,7 +502,7 @@ function PhotoViewerModal({ galleryState, onClose }) {
               {activePhoto?.sender || 'Фото'}
             </Text>
             <Text style={styles.galleryMeta}>
-              {galleryState.index + 1} / {Math.max(1, galleryState.photos.length)} · свайп вверх для закрытия
+              {galleryState.index + 1} / {Math.max(1, galleryState.photos.length)}
             </Text>
           </View>
         </View>
@@ -682,17 +514,17 @@ function PhotoViewerModal({ galleryState, onClose }) {
             showsHorizontalScrollIndicator={false}
             initialScrollIndex={galleryState.index}
             getItemLayout={(_, index) => ({
-              length: SCREEN_WIDTH,
-              offset: SCREEN_WIDTH * index,
+              length: screenWidth,
+              offset: screenWidth * index,
               index,
             })}
             data={galleryState.photos}
             keyExtractor={(_, idx) => `photo_${idx}`}
             renderItem={({ item }) => (
-              <View style={{ width: SCREEN_WIDTH, flex: 1, justifyContent: 'center' }}>
+              <View style={{ width: screenWidth, flex: 1, justifyContent: 'center' }}>
                 <Image
                   source={{ uri: item.uri }}
-                  style={styles.galleryFullImg}
+                  style={{ width: screenWidth, height: '72%' }}
                   resizeMode="contain"
                 />
                 {item.caption ? (
@@ -710,6 +542,7 @@ function PhotoViewerModal({ galleryState, onClose }) {
 function VoiceMessageBubble({ uri, durationSec, isMine, theme, msgId, activeVoiceId, setActiveVoiceId }) {
   const avSoundRef = useRef(null);
   const audioPlayerRef = useRef(null);
+  const webAudioRef = useRef(null);
   const pollTimerRef = useRef(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -727,6 +560,12 @@ function VoiceMessageBubble({ uri, durationSec, isMine, theme, msgId, activeVoic
 
   const stopAndCleanup = async () => {
     clearPoll();
+    try {
+      if (webAudioRef.current) {
+        webAudioRef.current.pause();
+        webAudioRef.current = null;
+      }
+    } catch (_) {}
     try {
       if (avSoundRef.current) {
         await avSoundRef.current.unloadAsync();
@@ -757,6 +596,9 @@ function VoiceMessageBubble({ uri, durationSec, isMine, theme, msgId, activeVoic
   useEffect(() => {
     if (!isThisActive && isPlaying) {
       clearPoll();
+      try {
+        if (webAudioRef.current) webAudioRef.current.pause();
+      } catch (_) {}
       setIsPlaying(false);
     }
   }, [isThisActive, isPlaying]);
@@ -782,9 +624,8 @@ function VoiceMessageBubble({ uri, durationSec, isMine, theme, msgId, activeVoic
     if (isPlaying) {
       clearPoll();
       try {
-        if (avSoundRef.current) {
-          await avSoundRef.current.pauseAsync();
-        }
+        if (webAudioRef.current) webAudioRef.current.pause();
+        if (avSoundRef.current) await avSoundRef.current.pauseAsync();
         if (audioPlayerRef.current && typeof audioPlayerRef.current.pause === 'function') {
           audioPlayerRef.current.pause();
         }
@@ -794,6 +635,38 @@ function VoiceMessageBubble({ uri, durationSec, isMine, theme, msgId, activeVoic
     }
 
     setActiveVoiceId(msgId);
+
+    if (
+      Platform.OS === 'web' &&
+      uri &&
+      (uri.startsWith('blob:') || uri.startsWith('data:audio') || uri.startsWith('http')) &&
+      typeof Audio !== 'undefined'
+    ) {
+      try {
+        if (!webAudioRef.current) {
+          const aud = new Audio(uri);
+          aud.onended = () => {
+            clearPoll();
+            setIsPlaying(false);
+            setPositionSec(0);
+            setActiveVoiceId(null);
+          };
+          webAudioRef.current = aud;
+        }
+        await webAudioRef.current.play();
+        setIsPlaying(true);
+        clearPoll();
+        pollTimerRef.current = setInterval(() => {
+          const aud = webAudioRef.current;
+          if (!aud) return;
+          const cur = Math.floor(Number(aud.currentTime || 0));
+          const dur = Math.max(1, Math.floor(Number(aud.duration) || totalSec || 1));
+          setTotalSec(dur);
+          setPositionSec(cur);
+        }, 250);
+        return;
+      } catch (_) {}
+    }
 
     if (uri && ExpoAudioModule && typeof ExpoAudioModule.createAudioPlayer === 'function') {
       try {
@@ -870,8 +743,10 @@ function VoiceMessageBubble({ uri, durationSec, isMine, theme, msgId, activeVoic
   const shownTime =
     isPlaying || positionSec > 0 ? formatDuration(positionSec) : formatDuration(totalSec);
 
-  const trackBg = isMine ? 'rgba(255,255,255,0.28)' : theme.border;
-  const fillBg = isMine ? '#ffffff' : theme.accent;
+  const trackBg = isMine && theme.isDark ? 'rgba(255,255,255,0.28)' : theme.border;
+  const fillBg = isMine && theme.isDark ? '#ffffff' : theme.accent;
+  const iconColor = isMine && theme.isDark ? '#ffffff' : theme.accentText;
+  const labelColor = isMine && theme.isDark ? 'rgba(255,255,255,0.88)' : theme.textMuted;
 
   return (
     <View style={styles.voiceRow}>
@@ -879,17 +754,11 @@ function VoiceMessageBubble({ uri, durationSec, isMine, theme, msgId, activeVoic
         activeOpacity={0.8}
         style={[
           styles.voicePlayBtn,
-          { backgroundColor: isMine ? 'rgba(255,255,255,0.22)' : theme.accentSoft },
+          { backgroundColor: isMine && theme.isDark ? 'rgba(255,255,255,0.22)' : theme.accentSoft },
         ]}
         onPress={handleTogglePlay}
       >
-        <Text
-          style={{
-            color: isMine ? '#ffffff' : theme.accentText,
-            fontWeight: '700',
-            fontSize: 13,
-          }}
-        >
+        <Text style={{ color: iconColor, fontWeight: '700', fontSize: 13 }}>
           {isPlaying ? '❚❚' : '▶'}
         </Text>
       </TouchableOpacity>
@@ -906,12 +775,7 @@ function VoiceMessageBubble({ uri, durationSec, isMine, theme, msgId, activeVoic
             ]}
           />
         </View>
-        <Text
-          style={[
-            styles.voiceMeta,
-            { color: isMine ? 'rgba(255,255,255,0.88)' : theme.textMuted },
-          ]}
-        >
+        <Text style={[styles.voiceMeta, { color: labelColor }]}>
           Голосовое · {shownTime}
         </Text>
       </View>
@@ -925,11 +789,12 @@ function LoginScreen({ theme, onToggleTheme, onLoggedIn }) {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
+    if (loading) return;
     const cleanLogin = normalizeId(loginInput);
     const cleanPass = passwordInput.trim();
 
     if (!cleanLogin || !cleanPass) {
-      alert('Введи логин и пароль');
+      notifyUser('Введи логин и пароль');
       return;
     }
 
@@ -942,17 +807,17 @@ function LoginScreen({ theme, onToggleTheme, onLoggedIn }) {
     setLoading(false);
 
     if (error) {
-      alert('Ошибка входа: ' + error.message);
+      notifyUser('Ошибка входа: ' + error.message);
       return;
     }
 
     if (!data) {
-      alert('Логин не найден');
+      notifyUser('Логин не найден');
       return;
     }
 
     if (String(data.password_pin || '') !== cleanPass) {
-      alert('Неверный пароль');
+      notifyUser('Неверный пароль');
       return;
     }
 
@@ -980,7 +845,7 @@ function LoginScreen({ theme, onToggleTheme, onLoggedIn }) {
       >
         <Text style={[styles.authHeading, { color: theme.text }]}>Вход в закрытый круг</Text>
         <Text style={[styles.authCaption, { color: theme.textMuted }]}>
-          Введи логин и пароль. Сессия сохранится, пока ты сама не выйдешь из аккаунта.
+          Введи логин и пароль и нажми Enter.
         </Text>
 
         <TextInput
@@ -994,6 +859,8 @@ function LoginScreen({ theme, onToggleTheme, onLoggedIn }) {
           onChangeText={setLoginInput}
           autoCapitalize="none"
           autoCorrect={false}
+          returnKeyType="next"
+          onSubmitEditing={handleLogin}
         />
 
         <TextInput
@@ -1006,6 +873,8 @@ function LoginScreen({ theme, onToggleTheme, onLoggedIn }) {
           value={passwordInput}
           onChangeText={setPasswordInput}
           secureTextEntry
+          returnKeyType="go"
+          onSubmitEditing={handleLogin}
         />
 
         <TouchableOpacity
@@ -1049,19 +918,19 @@ function ForceSetupModal({ visible, profile, theme, onCompleted, onCancel }) {
     const p2 = confirmPassword.trim();
 
     if (!cleanName) {
-      alert('Укажи своё имя');
+      notifyUser('Укажи своё имя');
       return;
     }
     if (!cleanLogin || cleanLogin.length < 3) {
-      alert('Придумай новый логин (минимум 3 символа)');
+      notifyUser('Придумай новый логин (минимум 3 символа)');
       return;
     }
     if (p1.length < 4) {
-      alert('Новый пароль должен быть минимум из 4 символов');
+      notifyUser('Новый пароль должен быть минимум из 4 символов');
       return;
     }
     if (p1 !== p2) {
-      alert('Пароли не совпадают');
+      notifyUser('Пароли не совпадают');
       return;
     }
 
@@ -1075,13 +944,13 @@ function ForceSetupModal({ visible, profile, theme, onCompleted, onCancel }) {
 
     if (checkErr) {
       setSaving(false);
-      alert('Ошибка проверки логина: ' + checkErr.message);
+      notifyUser('Ошибка проверки логина: ' + checkErr.message);
       return;
     }
 
     if (taken) {
       setSaving(false);
-      alert('Этот логин уже занят');
+      notifyUser('Этот логин уже занят');
       return;
     }
 
@@ -1100,7 +969,7 @@ function ForceSetupModal({ visible, profile, theme, onCompleted, onCancel }) {
     setSaving(false);
 
     if (error) {
-      alert('Не удалось сохранить: ' + error.message);
+      notifyUser('Не удалось сохранить: ' + error.message);
       return;
     }
 
@@ -1172,6 +1041,7 @@ function ForceSetupModal({ visible, profile, theme, onCompleted, onCancel }) {
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             secureTextEntry
+            onSubmitEditing={handleSaveSetup}
           />
 
           <TouchableOpacity
@@ -1191,15 +1061,16 @@ function ForceSetupModal({ visible, profile, theme, onCompleted, onCancel }) {
   );
 }
 
-function MessengerApp({
-  initialProfile,
-  theme,
-  onToggleTheme,
-  onProfileUpdated,
-  onLogout,
-  pinConfig,
-  onSavePinConfig,
-}) {
+function MessengerApp({ initialProfile, theme, onToggleTheme, onProfileUpdated, onLogout }) {
+  const [winWidth, setWinWidth] = useState(() => Dimensions.get('window').width);
+  useEffect(() => {
+    const sub = Dimensions.addEventListener('change', ({ window }) => {
+      setWinWidth(window.width);
+    });
+    return () => sub?.remove?.();
+  }, []);
+  const isWideWeb = Platform.OS === 'web' && winWidth >= 760;
+
   const [profile, setProfile] = useState(initialProfile);
   const [allProfiles, setAllProfiles] = useState([initialProfile]);
   const [allRoomMessages, setAllRoomMessages] = useState([]);
@@ -1243,6 +1114,7 @@ function MessengerApp({
   const [text, setText] = useState('');
   const [textSelection, setTextSelection] = useState({ start: 0, end: 0 });
   const listRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const lastTapRef = useRef({ id: null, time: 0 });
   const [actionTargetMsg, setActionTargetMsg] = useState(null);
@@ -1258,6 +1130,9 @@ function MessengerApp({
 
   const audioRecorderRef = useRef(null);
   const avRecordingRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const audioChunksRef = useRef([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
 
@@ -1275,9 +1150,6 @@ function MessengerApp({
   const [hiddenIdsText, setHiddenIdsText] = useState(
     (initialProfile.note_hidden_from || []).join(', ')
   );
-
-  const [pinEnabledDraft, setPinEnabledDraft] = useState(Boolean(pinConfig?.enabled));
-  const [pinCodeDraft, setPinCodeDraft] = useState(cleanPinDigits(pinConfig?.pin || ''));
 
   const [inviteLogin, setInviteLogin] = useState('');
   const [inviteTempPass, setInviteTempPass] = useState(generateTempPass());
@@ -1313,11 +1185,6 @@ function MessengerApp({
   }, [initialProfile]);
 
   useEffect(() => {
-    setPinEnabledDraft(Boolean(pinConfig?.enabled));
-    setPinCodeDraft(cleanPinDigits(pinConfig?.pin || ''));
-  }, [pinConfig]);
-
-  useEffect(() => {
     if (!profile.is_activated) return;
 
     loadProfiles();
@@ -1327,24 +1194,24 @@ function MessengerApp({
     const interval = setInterval(() => {
       loadProfiles();
       loadGroupsAndRoomMeta();
-    }, 25000);
+    }, 20000);
 
     const profilesSub = supabase
-      .channel('v15:profiles')
+      .channel('web:profiles')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
         loadProfiles();
       })
       .subscribe();
 
     const reactionsSub = supabase
-      .channel('v15:reactions')
+      .channel('web:reactions')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'note_reactions' }, () => {
         loadReactions();
       })
       .subscribe();
 
     const roomMetaSub = supabase
-      .channel('v15:all_messages_meta')
+      .channel('web:all_messages_meta')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
         loadGroupsAndRoomMeta();
       })
@@ -1363,7 +1230,7 @@ function MessengerApp({
     loadMessagesAndMarkRead(activeRoomId);
 
     const msgSub = supabase
-      .channel(`v15:msgs:${activeRoomId}`)
+      .channel(`web:msgs:${activeRoomId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
@@ -1382,15 +1249,14 @@ function MessengerApp({
   }, [activeRoomId, profile.hide_read_receipts, activeChat?.type]);
 
   useEffect(() => {
-    if (messages.length > 0 && subScreen === 'room' && !chatSearchText.trim()) {
+    if (messages.length > 0 && activeRoomId && !chatSearchText.trim()) {
       setTimeout(() => {
         listRef.current?.scrollToEnd({ animated: true });
       }, 120);
     }
-  }, [messages, subScreen]);
+  }, [messages, activeRoomId]);
 
   useEffect(() => {
-    if (subScreen !== 'room') return;
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       () => {
@@ -1400,7 +1266,7 @@ function MessengerApp({
       }
     );
     return () => showSub.remove();
-  }, [subScreen]);
+  }, []);
 
   useEffect(() => {
     if (!isRecording) {
@@ -1509,7 +1375,7 @@ function MessengerApp({
         if (Number(row.id) > clearBound) {
           roomLastMap[row.room_id] = row;
           const fromOther = normalizeId(row.sender_id) !== myId;
-          const isCurrentOpenRoom = subScreen === 'room' && row.room_id === activeRoomId;
+          const isCurrentOpenRoom = Boolean(activeRoomId) && row.room_id === activeRoomId;
           if (fromOther && !isCurrentOpenRoom && !row.read_at) {
             unreadMap[row.room_id] = (unreadMap[row.room_id] || 0) + 1;
           }
@@ -1737,7 +1603,7 @@ function MessengerApp({
   const handleCreateGroup = async () => {
     const cleanTitle = newGroupTitle.trim();
     if (!cleanTitle) {
-      alert('Введи название группы');
+      notifyUser('Введи название группы');
       return;
     }
 
@@ -1765,11 +1631,11 @@ function MessengerApp({
     if (!currentGroup) return;
     const cleanTarget = normalizeId(targetUserId);
     if (!currentGroup.admins.includes(myId)) {
-      alert('Только администратор может менять права админов');
+      notifyUser('Только администратор может менять права админов');
       return;
     }
     if (cleanTarget === myId && currentGroup.admins.length === 1) {
-      alert('В группе должен оставаться хотя бы один администратор');
+      notifyUser('В группе должен оставаться хотя бы один администратор');
       return;
     }
 
@@ -1787,7 +1653,7 @@ function MessengerApp({
     if (!currentGroup) return;
     const cleanTarget = normalizeId(targetUserId);
     if (!currentGroup.admins.includes(myId)) {
-      alert('Только администратор может добавлять и удалять участников');
+      notifyUser('Только администратор может добавлять и удалять участников');
       return;
     }
     if (cleanTarget === myId) return;
@@ -1882,19 +1748,28 @@ function MessengerApp({
   const insertMessageBodyToRoom = async (targetRoomId, targetRecipientId, bodyContent) => {
     if (!targetRoomId) return false;
     setDeletedRooms((prev) => ({ ...prev, [targetRoomId]: false }));
-    const { error } = await supabase.from('messages').insert([
-      {
-        sender: profile.display_name,
-        sender_id: myId,
-        recipient_id: targetRecipientId,
-        room_id: targetRoomId,
-        body: bodyContent,
-      },
-    ]);
+    const { data, error } = await supabase
+      .from('messages')
+      .insert([
+        {
+          sender: profile.display_name,
+          sender_id: myId,
+          recipient_id: targetRecipientId,
+          room_id: targetRoomId,
+          body: bodyContent,
+        },
+      ])
+      .select('*');
 
     if (error) {
-      alert('Ошибка отправки: ' + error.message);
+      notifyUser('Ошибка отправки: ' + error.message);
       return false;
+    }
+
+    if (targetRoomId === activeRoomId && data && data[0]) {
+      setMessages((prev) =>
+        prev.some((m) => m.id === data[0].id) ? prev : [...prev, data[0]]
+      );
     }
     return true;
   };
@@ -1970,7 +1845,7 @@ function MessengerApp({
     if (ok && dest.roomId === activeRoomId) {
       loadMessagesAndMarkRead(activeRoomId);
     } else if (ok) {
-      alert(`Переслано в чат «${dest.title}»`);
+      notifyUser(`Переслано в чат «${dest.title}»`);
     }
   };
 
@@ -2007,14 +1882,43 @@ function MessengerApp({
     }
   };
 
+  const handleWebFileChange = async (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file || !activeRoomId) return;
+    const objectUrl = URL.createObjectURL(file);
+    const fileName = file.name || 'file';
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+
+    if (file.type?.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+      await insertMessageBody(
+        JSON.stringify({ kind: 'image', uri: objectUrl, caption: text.trim() }),
+        true
+      );
+      setText('');
+    } else {
+      await insertMessageBody(
+        JSON.stringify({ kind: 'file', name: fileName, ext, uri: objectUrl }),
+        true
+      );
+    }
+    setReplyingToMsg(null);
+    event.target.value = '';
+  };
+
   const pickPhotoForChat = async () => {
     if (!activeRoomId) return;
+    if (Platform.OS === 'web' && fileInputRef.current) {
+      fileInputRef.current.accept = 'image/*';
+      fileInputRef.current.click();
+      return;
+    }
+
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       if (perm.canAskAgain === false) {
         Linking.openSettings();
       } else {
-        alert('Разреши доступ к галерее');
+        notifyUser('Разреши доступ к галерее');
       }
       return;
     }
@@ -2041,6 +1945,12 @@ function MessengerApp({
 
   const pickFileForChat = async () => {
     if (!activeRoomId) return;
+    if (Platform.OS === 'web' && fileInputRef.current) {
+      fileInputRef.current.accept = '*/*';
+      fileInputRef.current.click();
+      return;
+    }
+
     try {
       if (DocumentPickerModule && DocumentPickerModule.getDocumentAsync) {
         const res = await DocumentPickerModule.getDocumentAsync({
@@ -2076,12 +1986,36 @@ function MessengerApp({
         await pickPhotoForChat();
       }
     } catch (e) {
-      alert('Не удалось выбрать файл: ' + e.message);
+      notifyUser('Не удалось выбрать файл: ' + e.message);
     }
   };
 
   const startVoiceRecording = async () => {
     if (!activeRoomId) return;
+
+    if (
+      Platform.OS === 'web' &&
+      typeof navigator !== 'undefined' &&
+      navigator.mediaDevices &&
+      typeof MediaRecorder !== 'undefined'
+    ) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+        audioChunksRef.current = [];
+        const recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size > 0) {
+            audioChunksRef.current.push(ev.data);
+          }
+        };
+        mediaRecorderRef.current = recorder;
+        recorder.start();
+        setRecordSeconds(0);
+        setIsRecording(true);
+        return;
+      } catch (_) {}
+    }
 
     if (ExpoAudioModule && typeof ExpoAudioModule.requestRecordingPermissionsAsync === 'function') {
       try {
@@ -2140,7 +2074,28 @@ function MessengerApp({
     let uri = null;
     let finalSec = durationSec;
 
-    if (audioRecorderRef.current) {
+    if (mediaRecorderRef.current) {
+      const rec = mediaRecorderRef.current;
+      mediaRecorderRef.current = null;
+      await new Promise((resolve) => {
+        rec.onstop = () => {
+          const blob = new Blob(audioChunksRef.current, { type: rec.mimeType || 'audio/webm' });
+          if (blob.size > 0) {
+            uri = URL.createObjectURL(blob);
+          }
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+            mediaStreamRef.current = null;
+          }
+          resolve();
+        };
+        try {
+          rec.stop();
+        } catch (_) {
+          resolve();
+        }
+      });
+    } else if (audioRecorderRef.current) {
       const rec = audioRecorderRef.current;
       audioRecorderRef.current = null;
       try {
@@ -2253,11 +2208,11 @@ function MessengerApp({
       .eq('user_id', profile.user_id);
 
     if (error) {
-      alert('Ошибка сохранения заметки: ' + error.message);
+      notifyUser('Ошибка сохранения заметки: ' + error.message);
       return;
     }
     setNoteText(cleanNote);
-    alert(cleanNote ? 'Заметка опубликована' : 'Заметка убрана');
+    notifyUser(cleanNote ? 'Заметка опубликована' : 'Заметка убрана');
     loadProfiles();
   };
 
@@ -2299,7 +2254,7 @@ function MessengerApp({
       if (perm.canAskAgain === false) {
         Linking.openSettings();
       } else {
-        alert('Разреши доступ к галерее');
+        notifyUser('Разреши доступ к галерее');
       }
       return;
     }
@@ -2329,7 +2284,7 @@ function MessengerApp({
       .update({ avatar_url: null })
       .eq('user_id', profile.user_id);
     if (error) {
-      alert('Не удалось удалить фото: ' + error.message);
+      notifyUser('Не удалось удалить фото: ' + error.message);
       loadProfiles();
     }
   };
@@ -2377,37 +2332,16 @@ function MessengerApp({
         .update(payload)
         .eq('user_id', profile.user_id);
       if (retry.error) {
-        alert('Ошибка сохранения: ' + retry.error.message);
+        notifyUser('Ошибка сохранения: ' + retry.error.message);
         return;
       }
     } else if (error) {
-      alert('Ошибка сохранения: ' + error.message);
+      notifyUser('Ошибка сохранения: ' + error.message);
       return;
     }
 
-    alert('Настройки сохранены');
+    notifyUser('Настройки сохранены');
     loadProfiles();
-  };
-
-  const handleSavePinSettings = async () => {
-    const cleanPin = cleanPinDigits(pinCodeDraft);
-    if (pinEnabledDraft && cleanPin.length !== 4) {
-      alert('Введи 4-значный PIN-код (4 цифры)');
-      return;
-    }
-
-    const nextConfig = {
-      enabled: Boolean(pinEnabledDraft),
-      pin: cleanPin,
-    };
-
-    setPinCodeDraft(cleanPin);
-    await onSavePinConfig(nextConfig);
-    alert(
-      nextConfig.enabled
-        ? `PIN-код ${cleanPin} сохранён и включён`
-        : 'Использование PIN-кода выключено'
-    );
   };
 
   const togglePrivacyFlag = async (field) => {
@@ -2425,7 +2359,7 @@ function MessengerApp({
     const cleanLogin = normalizeId(inviteLogin);
     const cleanTemp = inviteTempPass.trim() || generateTempPass();
     if (!cleanLogin) {
-      alert('Введи логин');
+      notifyUser('Введи логин');
       return;
     }
 
@@ -2442,7 +2376,7 @@ function MessengerApp({
     ]);
 
     if (error) {
-      alert('Ошибка создания: ' + error.message);
+      notifyUser('Ошибка создания: ' + error.message);
       return;
     }
 
@@ -2634,7 +2568,7 @@ function MessengerApp({
         openSelfChat();
       }}
     >
-      <AvatarCircle user={profile} theme={theme} size={50} isSelf={true} />
+      <AvatarCircle user={profile} theme={theme} size={48} isSelf={true} />
       <View style={styles.peerBody}>
         <Text style={[styles.peerName, { color: theme.text }]}>You</Text>
         <Text style={[styles.peerSub, { color: theme.textMuted }]} numberOfLines={1}>
@@ -2654,7 +2588,12 @@ function MessengerApp({
           <TouchableOpacity
             style={[
               styles.peerCard,
-              { backgroundColor: theme.surface, borderColor: theme.border },
+              {
+                backgroundColor:
+                  activeChat?.type === 'self' && isWideWeb ? theme.surfaceAlt : theme.surface,
+                borderColor:
+                  activeChat?.type === 'self' && isWideWeb ? theme.accent : theme.border,
+              },
             ]}
             onPress={openSelfChat}
             onLongPress={() =>
@@ -2667,7 +2606,7 @@ function MessengerApp({
               })
             }
           >
-            <AvatarCircle user={profile} theme={theme} size={50} isSelf={true} />
+            <AvatarCircle user={profile} theme={theme} size={48} isSelf={true} />
             <View style={styles.peerBody}>
               <View style={styles.peerTopRow}>
                 <Text style={[styles.peerName, { color: theme.text }]}>You</Text>
@@ -2692,7 +2631,7 @@ function MessengerApp({
             <Text style={[styles.emptyText, { color: theme.textMuted }]}>
               {isArchivedList
                 ? 'Архив пуст.'
-                : 'Чатов пока нет. Нажми «Контакты» вверху, чтобы открыть You или начать чат с участником.'}
+                : 'Чатов пока нет. Нажми «Контакты» вверху, чтобы открыть You или начать чат.'}
             </Text>
           </View>
         ) : (
@@ -2703,6 +2642,10 @@ function MessengerApp({
             const lastMsg = lastMsgByRoom[roomId] || null;
             const isLastMine = lastMsg && normalizeId(lastMsg.sender_id) === myId;
             const unreadCount = unreadByRoom[roomId] || 0;
+            const isSelected =
+              isWideWeb &&
+              activeChat?.type === 'peer' &&
+              normalizeId(activeChat.peer?.user_id) === pid;
 
             return (
               <TouchableOpacity
@@ -2710,7 +2653,10 @@ function MessengerApp({
                 activeOpacity={0.85}
                 style={[
                   styles.peerCard,
-                  { backgroundColor: theme.surface, borderColor: theme.border },
+                  {
+                    backgroundColor: isSelected ? theme.surfaceAlt : theme.surface,
+                    borderColor: isSelected ? theme.accent : theme.border,
+                  },
                 ]}
                 onPress={() => openPeerChat(peer)}
                 onLongPress={() =>
@@ -2725,7 +2671,7 @@ function MessengerApp({
                 }
               >
                 <TouchableOpacity onPress={() => setInspectedUser(peer)}>
-                  <AvatarCircle user={peer} theme={theme} size={50} />
+                  <AvatarCircle user={peer} theme={theme} size={48} />
                 </TouchableOpacity>
 
                 <View style={styles.peerBody}>
@@ -2754,12 +2700,9 @@ function MessengerApp({
     );
   };
 
-  return (
-    <SafeAreaView
-      style={[styles.root, { backgroundColor: theme.bg }]}
-      edges={subScreen === 'room' ? ['top'] : ['top', 'bottom']}
-    >
-      {subScreen === 'contacts' && (
+  const renderSidebarContent = () => {
+    if (subScreen === 'contacts') {
+      return (
         <View style={styles.flex1}>
           <View
             style={[
@@ -2801,7 +2744,7 @@ function MessengerApp({
                   ]}
                 >
                   <TouchableOpacity onPress={() => setInspectedUser(person)}>
-                    <AvatarCircle user={person} theme={theme} size={50} />
+                    <AvatarCircle user={person} theme={theme} size={48} />
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.peerBody} onPress={() => setInspectedUser(person)}>
                     <Text style={[styles.peerName, { color: theme.text }]}>
@@ -2845,7 +2788,7 @@ function MessengerApp({
                     { backgroundColor: theme.surface, borderColor: theme.border },
                   ]}
                 >
-                  <AvatarCircle user={inv} theme={theme} size={46} />
+                  <AvatarCircle user={inv} theme={theme} size={44} />
                   <View style={styles.peerBody}>
                     <Text style={[styles.peerName, { color: theme.text }]}>
                       @{inv.login || inv.user_id}
@@ -2859,9 +2802,11 @@ function MessengerApp({
             )}
           </ScrollView>
         </View>
-      )}
+      );
+    }
 
-      {subScreen === 'archive' && (
+    if (subScreen === 'archive') {
+      return (
         <View style={styles.flex1}>
           <View
             style={[
@@ -2872,656 +2817,18 @@ function MessengerApp({
             <TouchableOpacity onPress={() => setSubScreen(null)}>
               <Text style={[styles.backActionText, { color: theme.accentText }]}>← Чаты</Text>
             </TouchableOpacity>
-            <Text style={[styles.topBarTitle, { color: theme.text }]}>Архивные чаты</Text>
-            <View style={{ width: 52 }} />
+            <Text style={[styles.topBarTitle, { color: theme.text }]}>Архив</Text>
+            <View style={{ width: 46 }} />
           </View>
           <ScrollView style={styles.flex1} contentContainerStyle={styles.listPad}>
             {renderChatListRows(archivedChats, true)}
           </ScrollView>
         </View>
-      )}
+      );
+    }
 
-      {subScreen === 'room' && activeChat && (
-        <KeyboardAvoidingView
-          style={styles.flex1}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={0}
-        >
-          <View style={styles.flex1}>
-            <View
-              style={[
-                styles.topBar,
-                { backgroundColor: theme.surface, borderBottomColor: theme.border },
-              ]}
-            >
-              <TouchableOpacity
-                style={styles.backAction}
-                onPress={() => {
-                  setEditingMsg(null);
-                  setReplyingToMsg(null);
-                  setRoomMenuOpen(false);
-                  setChatSearchOpen(false);
-                  setChatSearchText('');
-                  setSubScreen(null);
-                  setActiveChat(null);
-                }}
-              >
-                <Text style={[styles.backActionText, { color: theme.accentText }]}>←</Text>
-              </TouchableOpacity>
-
-              {activeChat.type === 'self' ? (
-                <View style={styles.roomMeta}>
-                  <Text style={[styles.roomName, { color: theme.text }]}>You</Text>
-                  <Text style={[styles.roomStatus, { color: theme.textMuted }]}>
-                    Избранное · личные заметки
-                  </Text>
-                </View>
-              ) : activeChat.type === 'group' && currentGroup ? (
-                <TouchableOpacity
-                  style={styles.roomMeta}
-                  onPress={() => setGroupMembersModalOpen(true)}
-                >
-                  <Text style={[styles.roomName, { color: theme.text }]}>
-                    {currentGroup.title}
-                  </Text>
-                  <Text style={[styles.roomStatus, { color: theme.textMuted }]}>
-                    {currentGroup.members.length} участников ·{' '}
-                    {isCurrentUserGroupAdmin ? 'админ' : 'участник'}
-                  </Text>
-                </TouchableOpacity>
-              ) : livePeer ? (
-                <TouchableOpacity
-                  style={styles.roomHeaderPeerRow}
-                  onPress={() => setInspectedUser(livePeer)}
-                >
-                  <AvatarCircle user={livePeer} theme={theme} size={36} />
-                  <View style={styles.roomMeta}>
-                    <Text style={[styles.roomName, { color: theme.text }]}>
-                      {livePeer.display_name}
-                    </Text>
-                    <Text style={[styles.roomStatus, { color: theme.textMuted }]}>
-                      @{livePeer.login || normalizeId(livePeer.user_id)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ) : null}
-
-              <TouchableOpacity
-                style={styles.threeDotsBtn}
-                onPress={() => setRoomMenuOpen((v) => !v)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={[styles.threeDotsText, { color: theme.text }]}>⋮</Text>
-              </TouchableOpacity>
-            </View>
-
-            {roomMenuOpen && (
-              <View
-                style={[
-                  styles.compactRoomMenu,
-                  { backgroundColor: theme.surface, borderColor: theme.border },
-                ]}
-              >
-                <TouchableOpacity
-                  style={styles.compactMenuItem}
-                  onPress={() => {
-                    setRoomMenuOpen(false);
-                    setChatSearchOpen(true);
-                  }}
-                >
-                  <Text style={[styles.compactMenuLabel, { color: theme.text }]}>Поиск по чату</Text>
-                </TouchableOpacity>
-
-                <View style={[styles.rowDivider, { backgroundColor: theme.border }]} />
-
-                <TouchableOpacity
-                  style={styles.compactMenuItem}
-                  onPress={() => {
-                    setRoomMenuOpen(false);
-                    clearRoomForMe(activeRoomId, messages);
-                  }}
-                >
-                  <Text style={[styles.compactMenuLabel, { color: theme.dangerText }]}>
-                    Очистить чат
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {chatSearchOpen && (
-              <View
-                style={[
-                  styles.chatSearchBar,
-                  { backgroundColor: theme.surface, borderBottomColor: theme.border },
-                ]}
-              >
-                <TextInput
-                  style={[
-                    styles.chatSearchInput,
-                    { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
-                  ]}
-                  placeholder="Поиск в переписке..."
-                  placeholderTextColor={theme.textMuted}
-                  value={chatSearchText}
-                  onChangeText={setChatSearchText}
-                  autoFocus
-                />
-                <TouchableOpacity
-                  onPress={() => {
-                    setChatSearchText('');
-                    setChatSearchOpen(false);
-                  }}
-                >
-                  <Text style={[styles.pinnedUnpinText, { color: theme.textMuted }]}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {activePinnedMsg && (
-              <View
-                style={[
-                  styles.pinnedBanner,
-                  {
-                    backgroundColor: theme.surfaceAlt,
-                    borderBottomColor: theme.border,
-                    borderLeftColor: theme.accent,
-                  },
-                ]}
-              >
-                <TouchableOpacity
-                  style={styles.flex1}
-                  onPress={() => {
-                    const idx = visibleMessages.findIndex((m) => m.id === activePinnedMsg.id);
-                    if (idx >= 0) {
-                      listRef.current?.scrollToIndex({ index: idx, animated: true });
-                    }
-                  }}
-                >
-                  <Text style={[styles.pinnedTitle, { color: theme.accentText }]}>
-                    Закреплённое ({safePinIdx + 1}/{pinnedMessagesList.length})
-                  </Text>
-                  <Text style={[styles.pinnedPreview, { color: theme.text }]} numberOfLines={1}>
-                    {getPreviewLabel(activePinnedMsg.body)}
-                  </Text>
-                </TouchableOpacity>
-
-                {pinnedMessagesList.length > 1 && (
-                  <TouchableOpacity
-                    style={[styles.pinCycleBtn, { backgroundColor: theme.accentSoft }]}
-                    onPress={() =>
-                      setActivePinIndexByRoom((prev) => ({
-                        ...prev,
-                        [activeRoomId]: safePinIdx + 1,
-                      }))
-                    }
-                  >
-                    <Text style={[styles.pinCycleText, { color: theme.accentText }]}>След.</Text>
-                  </TouchableOpacity>
-                )}
-
-                <TouchableOpacity onPress={() => togglePinMessage(activePinnedMsg.id)}>
-                  <Text style={[styles.pinnedUnpinText, { color: theme.textMuted }]}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            <View style={[styles.flex1, { backgroundColor: theme.bg }]}>
-              {CHAT_BG_SOURCE ? (
-                <ImageBackground
-                  source={CHAT_BG_SOURCE}
-                  style={styles.flex1}
-                  imageStyle={{ opacity: theme.isDark ? 0.34 : 0.16 }}
-                  resizeMode="cover"
-                >
-                  <FlatList
-                    ref={listRef}
-                    style={styles.flex1}
-                    data={visibleMessages}
-                    keyExtractor={(item) => String(item.id)}
-                    contentContainerStyle={styles.messagesPad}
-                    keyboardShouldPersistTaps="handled"
-                    onScrollToIndexFailed={() => {
-                      listRef.current?.scrollToEnd({ animated: true });
-                    }}
-                    renderItem={({ item, index }) => {
-                      const senderNorm = normalizeId(item.sender_id);
-                      const isMine = activeChat.type === 'self' || senderNorm === myId;
-                      const isSenderAdmin =
-                        activeChat.type === 'group' && currentGroup?.admins?.includes(senderNorm);
-
-                      const isLastMine =
-                        activeChat.type === 'peer' &&
-                        isMine &&
-                        index ===
-                          visibleMessages
-                            .map((m) => normalizeId(m.sender_id))
-                            .lastIndexOf(myId);
-
-                      const showReadReceipt =
-                        isLastMine &&
-                        !profile.hide_read_receipts &&
-                        !livePeer?.hide_read_receipts &&
-                        Boolean(item.read_at);
-
-                      const parsed = parseRichBody(item.body);
-                      const reactionsForMsg = msgReactions[item.id] || [];
-
-                      return (
-                        <View style={styles.msgSlot}>
-                          <TouchableOpacity
-                            activeOpacity={0.9}
-                            onPress={() => handleMessagePress(item)}
-                            onLongPress={() => openMessageMenu(item)}
-                            style={[
-                              styles.msgBubble,
-                              parsed.kind === 'image' && styles.photoBubbleWrap,
-                              isMine
-                                ? {
-                                    backgroundColor:
-                                      parsed.kind === 'image' ? theme.surface : theme.bubbleMine,
-                                    alignSelf: 'flex-end',
-                                    borderBottomRightRadius: 6,
-                                    borderColor:
-                                      parsed.kind === 'image' ? theme.accent : 'transparent',
-                                    borderWidth: parsed.kind === 'image' ? 1.5 : 0,
-                                  }
-                                : {
-                                    backgroundColor:
-                                      parsed.kind === 'image' ? theme.surface : theme.bubblePeer,
-                                    alignSelf: 'flex-start',
-                                    borderBottomLeftRadius: 6,
-                                    borderColor: theme.border,
-                                    borderWidth: 1,
-                                  },
-                            ]}
-                          >
-                            {!isMine && activeChat.type === 'group' && (
-                              <Text style={[styles.msgAuthor, { color: theme.accentText }]}>
-                                {item.sender}
-                                {isSenderAdmin ? ' · админ' : ''}
-                              </Text>
-                            )}
-
-                            {activeChat.type === 'group' && isMine && isSenderAdmin && (
-                              <Text style={[styles.mineAdminTag, { color: theme.accentText }]}>
-                                админ
-                              </Text>
-                            )}
-
-                            {parsed.forwardedFrom ? (
-                              <Text
-                                style={[
-                                  styles.forwardedTag,
-                                  {
-                                    color:
-                                      parsed.kind === 'image' || !isMine
-                                        ? theme.accentText
-                                        : 'rgba(255,255,255,0.88)',
-                                  },
-                                ]}
-                              >
-                                Переслано от {parsed.forwardedFrom}
-                              </Text>
-                            ) : null}
-
-                            {parsed.replyTo ? (
-                              <View
-                                style={[
-                                  styles.replyQuoteBox,
-                                  {
-                                    backgroundColor: isMine
-                                      ? 'rgba(255,255,255,0.14)'
-                                      : theme.surfaceAlt,
-                                    borderLeftColor: isMine ? '#ffffff' : theme.accent,
-                                  },
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.replyQuoteSender,
-                                    { color: isMine ? '#ffffff' : theme.accentText },
-                                  ]}
-                                >
-                                  {parsed.replyTo.sender}
-                                </Text>
-                                <Text
-                                  style={[
-                                    styles.replyQuoteText,
-                                    { color: isMine ? 'rgba(255,255,255,0.9)' : theme.textMuted },
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {parsed.replyTo.preview}
-                                </Text>
-                              </View>
-                            ) : null}
-
-                            {parsed.kind === 'image' ? (
-                              <View style={styles.framedPhotoBox}>
-                                <Image
-                                  source={{ uri: parsed.meta.uri }}
-                                  style={styles.framedPhotoImg}
-                                  resizeMode="cover"
-                                />
-                                {parsed.text ? (
-                                  <Text style={[styles.photoCaption, { color: theme.text }]}>
-                                    {parsed.text}
-                                  </Text>
-                                ) : null}
-                              </View>
-                            ) : parsed.kind === 'file' ? (
-                              <View style={styles.fileCardRow}>
-                                <Text
-                                  style={[
-                                    styles.fileExtBadge,
-                                    {
-                                      backgroundColor: theme.accentSoft,
-                                      color: theme.accentText,
-                                    },
-                                  ]}
-                                >
-                                  {(parsed.meta.ext || 'FILE').toUpperCase()}
-                                </Text>
-                                <View style={styles.flex1}>
-                                  <Text
-                                    style={[
-                                      styles.fileNameText,
-                                      { color: isMine ? theme.bubbleMineText : theme.bubblePeerText },
-                                    ]}
-                                    numberOfLines={2}
-                                  >
-                                    {parsed.text}
-                                  </Text>
-                                </View>
-                              </View>
-                            ) : parsed.kind === 'voice' ? (
-                              <VoiceMessageBubble
-                                uri={parsed.meta?.uri}
-                                durationSec={parsed.meta?.duration}
-                                isMine={isMine}
-                                theme={theme}
-                                msgId={item.id}
-                                activeVoiceId={activeVoiceId}
-                                setActiveVoiceId={setActiveVoiceId}
-                              />
-                            ) : parsed.text.includes('||') ? (
-                              <SpoilerTextRenderer
-                                text={parsed.text}
-                                isMine={isMine}
-                                theme={theme}
-                                msgId={item.id}
-                              />
-                            ) : (
-                              <Text
-                                style={[
-                                  styles.msgText,
-                                  { color: isMine ? theme.bubbleMineText : theme.bubblePeerText },
-                                ]}
-                              >
-                                {parsed.text}
-                              </Text>
-                            )}
-
-                            <Text
-                              style={[
-                                styles.msgClock,
-                                {
-                                  color:
-                                    parsed.kind === 'image' || !isMine
-                                      ? theme.textMuted
-                                      : 'rgba(255,255,255,0.75)',
-                                },
-                              ]}
-                            >
-                              {formatTime(item.created_at)}
-                            </Text>
-                          </TouchableOpacity>
-
-                          {reactionsForMsg.length > 0 && (
-                            <View
-                              style={[
-                                styles.msgReactionPill,
-                                {
-                                  backgroundColor: theme.surface,
-                                  borderColor: theme.border,
-                                  alignSelf: isMine ? 'flex-end' : 'flex-start',
-                                },
-                              ]}
-                            >
-                              <Text style={[styles.msgReactionText, { color: theme.text }]}>
-                                {reactionsForMsg.map((r) => r.emoji).join(' ')}
-                              </Text>
-                            </View>
-                          )}
-
-                          {showReadReceipt && (
-                            <Text style={[styles.seenLabel, { color: theme.accentText }]}>
-                              {formatSeenAgo(item.read_at)}
-                            </Text>
-                          )}
-                        </View>
-                      );
-                    }}
-                  />
-                </ImageBackground>
-              ) : (
-                <FlatList
-                  ref={listRef}
-                  style={styles.flex1}
-                  data={visibleMessages}
-                  keyExtractor={(item) => String(item.id)}
-                  contentContainerStyle={styles.messagesPad}
-                  keyboardShouldPersistTaps="handled"
-                  onScrollToIndexFailed={() => {
-                    listRef.current?.scrollToEnd({ animated: true });
-                  }}
-                  renderItem={({ item, index }) => {
-                    const senderNorm = normalizeId(item.sender_id);
-                    const isMine = activeChat.type === 'self' || senderNorm === myId;
-                    const isLastMine =
-                      activeChat.type === 'peer' &&
-                      isMine &&
-                      index ===
-                        visibleMessages.map((m) => normalizeId(m.sender_id)).lastIndexOf(myId);
-                    const showReadReceipt =
-                      isLastMine &&
-                      !profile.hide_read_receipts &&
-                      !livePeer?.hide_read_receipts &&
-                      Boolean(item.read_at);
-                    const parsed = parseRichBody(item.body);
-
-                    return (
-                      <View style={styles.msgSlot}>
-                        <TouchableOpacity
-                          activeOpacity={0.9}
-                          onPress={() => handleMessagePress(item)}
-                          onLongPress={() => openMessageMenu(item)}
-                          style={[
-                            styles.msgBubble,
-                            isMine
-                              ? {
-                                  backgroundColor: theme.bubbleMine,
-                                  alignSelf: 'flex-end',
-                                  borderBottomRightRadius: 6,
-                                }
-                              : {
-                                  backgroundColor: theme.bubblePeer,
-                                  alignSelf: 'flex-start',
-                                  borderBottomLeftRadius: 6,
-                                  borderColor: theme.border,
-                                  borderWidth: 1,
-                                },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.msgText,
-                              { color: isMine ? theme.bubbleMineText : theme.bubblePeerText },
-                            ]}
-                          >
-                            {parsed.text}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.msgClock,
-                              {
-                                color: !isMine ? theme.textMuted : 'rgba(255,255,255,0.75)',
-                              },
-                            ]}
-                          >
-                            {formatTime(item.created_at)}
-                          </Text>
-                        </TouchableOpacity>
-                        {showReadReceipt && (
-                          <Text style={[styles.seenLabel, { color: theme.accentText }]}>
-                            {formatSeenAgo(item.read_at)}
-                          </Text>
-                        )}
-                      </View>
-                    );
-                  }}
-                />
-              )}
-            </View>
-
-            {replyingToMsg && !editingMsg && (
-              <View
-                style={[
-                  styles.editBar,
-                  { backgroundColor: theme.surfaceAlt, borderTopColor: theme.border },
-                ]}
-              >
-                <View style={styles.flex1}>
-                  <Text style={[styles.editBarLabel, { color: theme.accentText }]}>
-                    Ответ: {replyingToMsg.sender}
-                  </Text>
-                  <Text style={[styles.editBarPreview, { color: theme.textMuted }]} numberOfLines={1}>
-                    {getPreviewLabel(replyingToMsg.body)}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => setReplyingToMsg(null)}>
-                  <Text style={[styles.pinnedUnpinText, { color: theme.textMuted }]}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {editingMsg && (
-              <View
-                style={[
-                  styles.editBar,
-                  { backgroundColor: theme.surfaceAlt, borderTopColor: theme.border },
-                ]}
-              >
-                <View style={styles.flex1}>
-                  <Text style={[styles.editBarLabel, { color: theme.accentText }]}>
-                    Редактирование сообщения
-                  </Text>
-                  <Text style={[styles.editBarPreview, { color: theme.textMuted }]} numberOfLines={1}>
-                    {getPreviewLabel(editingMsg.body)}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    setEditingMsg(null);
-                    setText('');
-                  }}
-                >
-                  <Text style={[styles.pinnedUnpinText, { color: theme.textMuted }]}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            <View
-              style={[
-                styles.composerBar,
-                { backgroundColor: theme.surface, borderTopColor: theme.border },
-              ]}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.attachBtn,
-                  { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
-                ]}
-                onPress={pickPhotoForChat}
-              >
-                <Text style={[styles.attachBtnText, { color: theme.accentText }]}>Фото</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.attachBtn,
-                  { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
-                ]}
-                onPress={pickFileForChat}
-              >
-                <Text style={[styles.attachBtnText, { color: theme.accentText }]}>Файл</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.attachBtn,
-                  { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
-                ]}
-                onPress={applySpoilerToInput}
-              >
-                <Text style={[styles.attachBtnText, { color: theme.accentText }]}>||</Text>
-              </TouchableOpacity>
-
-              <TextInput
-                style={[
-                  styles.composerInput,
-                  {
-                    backgroundColor: theme.surfaceAlt,
-                    borderColor: theme.border,
-                    color: theme.text,
-                  },
-                ]}
-                placeholder={
-                  isRecording
-                    ? `Запись голоса... ${formatDuration(recordSeconds)}`
-                    : activeChat.type === 'self'
-                    ? 'Написать в You...'
-                    : 'Сообщение...'
-                }
-                placeholderTextColor={isRecording ? '#f87171' : theme.textMuted}
-                value={text}
-                onChangeText={setText}
-                onFocus={() => {
-                  setTimeout(() => {
-                    listRef.current?.scrollToEnd({ animated: true });
-                  }, 120);
-                }}
-                onSelectionChange={(e) => setTextSelection(e.nativeEvent.selection)}
-                editable={!isRecording}
-                multiline
-              />
-
-              {text.trim().length > 0 ? (
-                <TouchableOpacity
-                  style={[styles.sendCircle, { backgroundColor: theme.accent }]}
-                  onPress={sendMessage}
-                >
-                  <Text style={styles.sendArrow}>{editingMsg ? '✓' : '↑'}</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[
-                    styles.voiceRecordBtn,
-                    { backgroundColor: isRecording ? '#dc2626' : theme.accent },
-                  ]}
-                  onPress={isRecording ? stopAndSendVoiceRecording : startVoiceRecording}
-                >
-                  <Text style={styles.voiceRecordBtnText}>
-                    {isRecording ? 'Стоп' : 'Голос'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      )}
-
-      {!subScreen && tab === 'chats' && (
+    if (tab === 'chats') {
+      return (
         <View style={styles.flex1}>
           <View
             style={[
@@ -3568,7 +2875,9 @@ function MessengerApp({
               ]}
               onPress={() => setSubScreen('archive')}
             >
-              <Text style={[styles.archiveBannerTitle, { color: theme.text }]}>Архивированные чаты</Text>
+              <Text style={[styles.archiveBannerTitle, { color: theme.text }]}>
+                Архивированные чаты
+              </Text>
               <Text style={[styles.archiveBannerCount, { color: theme.accentText }]}>
                 {archivedChats.length > 0 ? `${archivedChats.length} ›` : 'Открыть ›'}
               </Text>
@@ -3581,13 +2890,21 @@ function MessengerApp({
                   const gRoomId = makeGroupRoomId(grp.id);
                   const gLast = lastMsgByRoom[gRoomId] || null;
                   const gUnread = unreadByRoom[gRoomId] || 0;
+                  const isSelected =
+                    isWideWeb &&
+                    activeChat?.type === 'group' &&
+                    currentGroup?.id === grp.id;
+
                   return (
                     <TouchableOpacity
                       key={grp.id}
                       activeOpacity={0.85}
                       style={[
                         styles.peerCard,
-                        { backgroundColor: theme.surface, borderColor: theme.border },
+                        {
+                          backgroundColor: isSelected ? theme.surfaceAlt : theme.surface,
+                          borderColor: isSelected ? theme.accent : theme.border,
+                        },
                       ]}
                       onPress={() => openGroupChat(grp)}
                       onLongPress={() =>
@@ -3600,7 +2917,7 @@ function MessengerApp({
                         })
                       }
                     >
-                      <AvatarCircle user={grp} theme={theme} size={50} isGroup={true} />
+                      <AvatarCircle user={grp} theme={theme} size={48} isGroup={true} />
                       <View style={styles.peerBody}>
                         <View style={styles.peerTopRow}>
                           <Text style={[styles.peerName, { color: theme.text }]}>{grp.title}</Text>
@@ -3627,9 +2944,11 @@ function MessengerApp({
             {renderChatListRows(sortedMainChats, false)}
           </ScrollView>
         </View>
-      )}
+      );
+    }
 
-      {!subScreen && tab === 'search' && (
+    if (tab === 'search') {
+      return (
         <View style={styles.flex1}>
           <View
             style={[
@@ -3707,7 +3026,7 @@ function MessengerApp({
                 ]}
               >
                 <TouchableOpacity onPress={() => setInspectedUser(u)}>
-                  <AvatarCircle user={u} theme={theme} size={48} />
+                  <AvatarCircle user={u} theme={theme} size={46} />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.peerBody} onPress={() => setInspectedUser(u)}>
                   <Text style={[styles.peerName, { color: theme.text }]}>
@@ -3729,9 +3048,11 @@ function MessengerApp({
             ))}
           </ScrollView>
         </View>
-      )}
+      );
+    }
 
-      {!subScreen && tab === 'notes' && (
+    if (tab === 'notes') {
+      return (
         <View style={styles.flex1}>
           <View
             style={[
@@ -3764,7 +3085,7 @@ function MessengerApp({
                     : 'Ваша заметка'}
                 </Text>
               </View>
-              <AvatarCircle user={profile} theme={theme} size={62} />
+              <AvatarCircle user={profile} theme={theme} size={58} />
               <Text style={[styles.igUserLabel, { color: theme.textMuted }]} numberOfLines={1}>
                 Ваша заметка
               </Text>
@@ -3788,7 +3109,7 @@ function MessengerApp({
                       {`${peer.note_sticker || ''} ${peer.note_text} ${peer.note_emoji || ''}`.trim()}
                     </Text>
                   </View>
-                  <AvatarCircle user={peer} theme={theme} size={62} />
+                  <AvatarCircle user={peer} theme={theme} size={58} />
                   <Text style={[styles.igUserLabel, { color: theme.textMuted }]} numberOfLines={1}>
                     {peer.display_name}
                   </Text>
@@ -3859,6 +3180,7 @@ function MessengerApp({
                 maxLength={60}
                 value={noteText}
                 onChangeText={setNoteText}
+                onSubmitEditing={() => saveMyNote(noteText)}
               />
 
               <View style={styles.dualRow}>
@@ -3907,7 +3229,7 @@ function MessengerApp({
                   >
                     <View style={styles.igNoteCardHeader}>
                       <TouchableOpacity onPress={() => !isMe && setInspectedUser(p)}>
-                        <AvatarCircle user={p} theme={theme} size={42} />
+                        <AvatarCircle user={p} theme={theme} size={40} />
                       </TouchableOpacity>
                       <View style={styles.flex1}>
                         <Text style={[styles.peerName, { color: theme.text }]}>
@@ -3964,345 +3286,1103 @@ function MessengerApp({
             )}
           </ScrollView>
         </View>
-      )}
+      );
+    }
 
-      {!subScreen && tab === 'profile' && (
-        <ScrollView style={styles.flex1} contentContainerStyle={styles.scrollPad}>
-          <Text style={[styles.pageHeading, { color: theme.text }]}>Настройки</Text>
+    return (
+      <ScrollView style={styles.flex1} contentContainerStyle={styles.scrollPad}>
+        <Text style={[styles.pageHeading, { color: theme.text }]}>Настройки</Text>
 
-          <View
-            style={[
-              styles.surfaceCard,
-              { backgroundColor: theme.surface, borderColor: theme.border },
-            ]}
-          >
-            <View style={styles.profileHeaderRow}>
-              <TouchableOpacity onPress={pickAvatarFromGallery}>
-                <AvatarCircle user={profile} theme={theme} size={66} />
-              </TouchableOpacity>
+        <View
+          style={[
+            styles.surfaceCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <View style={styles.profileHeaderRow}>
+            <TouchableOpacity onPress={pickAvatarFromGallery}>
+              <AvatarCircle user={profile} theme={theme} size={62} />
+            </TouchableOpacity>
 
-              <View style={styles.flex1}>
-                <Text style={[styles.profTitle, { color: theme.text }]}>
-                  {profile.display_name}
-                </Text>
-                <Text style={[styles.profSub, { color: theme.textMuted }]}>
-                  @{profile.login || profile.user_id}
-                </Text>
-                <View style={styles.avatarLinksRow}>
-                  <TouchableOpacity onPress={pickAvatarFromGallery}>
-                    <Text style={[styles.accentLink, { color: theme.accentText }]}>
-                      {profile.avatar_url ? 'Сменить фото' : 'Добавить фото'}
+            <View style={styles.flex1}>
+              <Text style={[styles.profTitle, { color: theme.text }]}>
+                {profile.display_name}
+              </Text>
+              <Text style={[styles.profSub, { color: theme.textMuted }]}>
+                @{profile.login || profile.user_id}
+              </Text>
+              <View style={styles.avatarLinksRow}>
+                <TouchableOpacity onPress={pickAvatarFromGallery}>
+                  <Text style={[styles.accentLink, { color: theme.accentText }]}>
+                    {profile.avatar_url ? 'Сменить фото' : 'Добавить фото'}
+                  </Text>
+                </TouchableOpacity>
+                {profile.avatar_url ? (
+                  <TouchableOpacity onPress={removeAvatarPhoto}>
+                    <Text style={[styles.deletePhotoLink, { color: theme.dangerText }]}>
+                      Удалить фото
                     </Text>
                   </TouchableOpacity>
-                  {profile.avatar_url ? (
-                    <TouchableOpacity onPress={removeAvatarPhoto}>
-                      <Text style={[styles.deletePhotoLink, { color: theme.dangerText }]}>
-                        Удалить фото
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
+                ) : null}
               </View>
             </View>
           </View>
+        </View>
 
-          <Text style={[styles.groupHeading, { color: theme.textMuted }]}>Аккаунт</Text>
-          <View
+        <Text style={[styles.groupHeading, { color: theme.textMuted }]}>Аккаунт</Text>
+        <View
+          style={[
+            styles.surfaceCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Имя</Text>
+          <TextInput
             style={[
-              styles.surfaceCard,
-              { backgroundColor: theme.surface, borderColor: theme.border },
+              styles.field,
+              { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
             ]}
-          >
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Имя</Text>
-            <TextInput
-              style={[
-                styles.field,
-                { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
-              ]}
-              value={editName}
-              onChangeText={setEditName}
-              placeholder="Имя"
-              placeholderTextColor={theme.textMuted}
-            />
+            value={editName}
+            onChangeText={setEditName}
+            placeholder="Имя"
+            placeholderTextColor={theme.textMuted}
+          />
 
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Имя пользователя (@логин)</Text>
-            <TextInput
-              style={[
-                styles.field,
-                { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
-              ]}
-              value={editLogin}
-              onChangeText={setEditLogin}
-              placeholder="Логин"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Телефон (необязательно)</Text>
-            <TextInput
-              style={[
-                styles.field,
-                { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
-              ]}
-              value={editPhone}
-              onChangeText={setEditPhone}
-              placeholder="+7 700 000 00 00"
-              placeholderTextColor={theme.textMuted}
-              keyboardType="phone-pad"
-            />
-
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>О себе</Text>
-            <TextInput
-              style={[
-                styles.field,
-                styles.bioField,
-                { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
-              ]}
-              value={editBio}
-              onChangeText={setEditBio}
-              placeholder="Коротко о себе"
-              placeholderTextColor={theme.textMuted}
-              multiline
-            />
-
-            <TouchableOpacity
-              style={[styles.mainButton, { backgroundColor: theme.accent }]}
-              onPress={saveProfileAndPrivacy}
-            >
-              <Text style={styles.mainButtonText}>Сохранить профиль</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={[styles.groupHeading, { color: theme.textMuted }]}>Защита PIN-кодом</Text>
-          <View
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Имя пользователя (@логин)</Text>
+          <TextInput
             style={[
-              styles.surfaceCard,
-              { backgroundColor: theme.surface, borderColor: theme.border },
+              styles.field,
+              { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
             ]}
-          >
-            <TouchableOpacity
-              style={styles.settingRow}
-              onPress={() => setPinEnabledDraft((v) => !v)}
-            >
-              <View style={styles.flex1}>
-                <Text style={[styles.settingTitle, { color: theme.text }]}>Использовать PIN</Text>
-                <Text style={[styles.settingSub, { color: theme.textMuted }]}>
-                  Запрашивать 4-значный PIN при входе в приложение
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.togglePill,
-                  {
-                    backgroundColor: pinEnabledDraft ? theme.accent : theme.surfaceAlt,
-                    color: pinEnabledDraft ? '#ffffff' : theme.textMuted,
-                  },
-                ]}
-              >
-                {pinEnabledDraft ? 'ВКЛ' : 'ВЫКЛ'}
-              </Text>
-            </TouchableOpacity>
+            value={editLogin}
+            onChangeText={setEditLogin}
+            placeholder="Логин"
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
 
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>4-значный PIN-код</Text>
-            <TextInput
-              style={[
-                styles.field,
-                { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
-              ]}
-              value={pinCodeDraft}
-              onChangeText={(val) => setPinCodeDraft(cleanPinDigits(val))}
-              placeholder="Например: 1234"
-              placeholderTextColor={theme.textMuted}
-              keyboardType="number-pad"
-              maxLength={4}
-              secureTextEntry
-            />
-
-            <TouchableOpacity
-              style={[styles.mainButton, { backgroundColor: theme.accent }]}
-              onPress={handleSavePinSettings}
-            >
-              <Text style={styles.mainButtonText}>Сохранить PIN</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={[styles.groupHeading, { color: theme.textMuted }]}>Конфиденциальность и вид</Text>
-          <View
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Телефон (необязательно)</Text>
+          <TextInput
             style={[
-              styles.surfaceCard,
-              { backgroundColor: theme.surface, borderColor: theme.border },
+              styles.field,
+              { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
             ]}
+            value={editPhone}
+            onChangeText={setEditPhone}
+            placeholder="+7 700 000 00 00"
+            placeholderTextColor={theme.textMuted}
+          />
+
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>О себе</Text>
+          <TextInput
+            style={[
+              styles.field,
+              styles.bioField,
+              { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
+            ]}
+            value={editBio}
+            onChangeText={setEditBio}
+            placeholder="Коротко о себе"
+            placeholderTextColor={theme.textMuted}
+            multiline
+          />
+
+          <TouchableOpacity
+            style={[styles.mainButton, { backgroundColor: theme.accent }]}
+            onPress={saveProfileAndPrivacy}
           >
-            <TouchableOpacity style={styles.settingRow} onPress={onToggleTheme}>
-              <View style={styles.flex1}>
-                <Text style={[styles.settingTitle, { color: theme.text }]}>Оформление</Text>
-                <Text style={[styles.settingSub, { color: theme.textMuted }]}>
-                  {theme.isDark ? 'Тёмная тема' : 'Светлая тема'}
-                </Text>
-              </View>
-              <Text style={[styles.togglePill, { backgroundColor: theme.accent, color: '#ffffff' }]}>
-                {theme.isDark ? 'ТЁМНАЯ' : 'СВЕТЛАЯ'}
+            <Text style={styles.mainButtonText}>Сохранить профиль</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.groupHeading, { color: theme.textMuted }]}>Конфиденциальность и вид</Text>
+        <View
+          style={[
+            styles.surfaceCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <TouchableOpacity style={styles.settingRow} onPress={onToggleTheme}>
+            <View style={styles.flex1}>
+              <Text style={[styles.settingTitle, { color: theme.text }]}>Оформление</Text>
+              <Text style={[styles.settingSub, { color: theme.textMuted }]}>
+                {theme.isDark ? 'Тёмная тема' : 'Светлая тема'}
               </Text>
-            </TouchableOpacity>
-
-            <View style={[styles.rowDivider, { backgroundColor: theme.border }]} />
-
-            <TouchableOpacity
-              style={styles.settingRow}
-              onPress={() => togglePrivacyFlag('hide_read_receipts')}
-            >
-              <View style={styles.flex1}>
-                <Text style={[styles.settingTitle, { color: theme.text }]}>Статус прочтения</Text>
-                <Text style={[styles.settingSub, { color: theme.textMuted }]}>
-                  Скрывать отметку «Прочитано»
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.togglePill,
-                  {
-                    backgroundColor: profile.hide_read_receipts ? theme.accent : theme.surfaceAlt,
-                    color: profile.hide_read_receipts ? '#ffffff' : theme.textMuted,
-                  },
-                ]}
-              >
-                {profile.hide_read_receipts ? 'СКРЫТО' : 'ВИДНО'}
-              </Text>
-            </TouchableOpacity>
-
-            <View style={[styles.rowDivider, { backgroundColor: theme.border }]} />
-
-            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
-              Скрыть заметки от (ID или логины через запятую)
+            </View>
+            <Text style={[styles.togglePill, { backgroundColor: theme.accent, color: '#ffffff' }]}>
+              {theme.isDark ? 'ТЁМНАЯ' : 'СВЕТЛАЯ'}
             </Text>
-            <TextInput
+          </TouchableOpacity>
+
+          <View style={[styles.rowDivider, { backgroundColor: theme.border }]} />
+
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => togglePrivacyFlag('hide_read_receipts')}
+          >
+            <View style={styles.flex1}>
+              <Text style={[styles.settingTitle, { color: theme.text }]}>Статус прочтения</Text>
+              <Text style={[styles.settingSub, { color: theme.textMuted }]}>
+                Скрывать отметку «Прочитано»
+              </Text>
+            </View>
+            <Text
               style={[
-                styles.field,
-                { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
+                styles.togglePill,
+                {
+                  backgroundColor: profile.hide_read_receipts ? theme.accent : theme.surfaceAlt,
+                  color: profile.hide_read_receipts ? '#ffffff' : theme.textMuted,
+                },
               ]}
-              value={hiddenIdsText}
-              onChangeText={setHiddenIdsText}
-              placeholder="id_300102, id_300103"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="none"
-            />
-
-            <TouchableOpacity
-              style={[styles.mainButton, { backgroundColor: theme.accent }]}
-              onPress={saveProfileAndPrivacy}
             >
-              <Text style={styles.mainButtonText}>Применить настройки</Text>
-            </TouchableOpacity>
-          </View>
+              {profile.hide_read_receipts ? 'СКРЫТО' : 'ВИДНО'}
+            </Text>
+          </TouchableOpacity>
 
-          <Text style={[styles.groupHeading, { color: theme.textMuted }]}>Пригласить в закрытый круг</Text>
+          <View style={[styles.rowDivider, { backgroundColor: theme.border }]} />
+
+          <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
+            Скрыть заметки от (ID или логины через запятую)
+          </Text>
+          <TextInput
+            style={[
+              styles.field,
+              { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
+            ]}
+            value={hiddenIdsText}
+            onChangeText={setHiddenIdsText}
+            placeholder="id_300102, id_300103"
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="none"
+          />
+
+          <TouchableOpacity
+            style={[styles.mainButton, { backgroundColor: theme.accent }]}
+            onPress={saveProfileAndPrivacy}
+          >
+            <Text style={styles.mainButtonText}>Применить настройки</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.groupHeading, { color: theme.textMuted }]}>Пригласить в закрытый круг</Text>
+        <View
+          style={[
+            styles.surfaceCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <TextInput
+            style={[
+              styles.field,
+              { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
+            ]}
+            placeholder="Логин (например: maya_05)"
+            placeholderTextColor={theme.textMuted}
+            value={inviteLogin}
+            onChangeText={setInviteLogin}
+            autoCapitalize="none"
+          />
+          <TextInput
+            style={[
+              styles.field,
+              { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
+            ]}
+            placeholder="Одноразовый пароль"
+            placeholderTextColor={theme.textMuted}
+            value={inviteTempPass}
+            onChangeText={setInviteTempPass}
+            onSubmitEditing={createInviteCredentials}
+          />
+          <TouchableOpacity
+            style={[styles.mainButton, { backgroundColor: theme.accent }]}
+            onPress={createInviteCredentials}
+          >
+            <Text style={styles.mainButtonText}>Создать логин и пароль</Text>
+          </TouchableOpacity>
+          {createdInviteInfo ? (
+            <View
+              style={[
+                styles.inviteResult,
+                { backgroundColor: theme.accentSoft, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.inviteResultText, { color: theme.text }]}>
+                {createdInviteInfo}
+              </Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.exitButton, { backgroundColor: theme.dangerBg }]}
+            onPress={onLogout}
+          >
+            <Text style={[styles.exitButtonText, { color: theme.dangerText }]}>Выйти из аккаунта</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    );
+  };
+
+  const renderChatPane = () => {
+    if (!activeChat || !activeRoomId) {
+      return (
+        <View style={[styles.emptyRoomPane, { backgroundColor: theme.bg }]}>
           <View
             style={[
-              styles.surfaceCard,
+              styles.emptyRoomBadge,
               { backgroundColor: theme.surface, borderColor: theme.border },
             ]}
           >
-            <TextInput
-              style={[
-                styles.field,
-                { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
-              ]}
-              placeholder="Логин (например: maya_05)"
-              placeholderTextColor={theme.textMuted}
-              value={inviteLogin}
-              onChangeText={setInviteLogin}
-              autoCapitalize="none"
-            />
-            <TextInput
-              style={[
-                styles.field,
-                { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
-              ]}
-              placeholder="Одноразовый пароль"
-              placeholderTextColor={theme.textMuted}
-              value={inviteTempPass}
-              onChangeText={setInviteTempPass}
-            />
-            <TouchableOpacity
-              style={[styles.mainButton, { backgroundColor: theme.accent }]}
-              onPress={createInviteCredentials}
-            >
-              <Text style={styles.mainButtonText}>Создать логин и пароль</Text>
-            </TouchableOpacity>
-            {createdInviteInfo ? (
-              <View
-                style={[
-                  styles.inviteResult,
-                  { backgroundColor: theme.accentSoft, borderColor: theme.border },
-                ]}
+            <Text style={[styles.emptyRoomTitle, { color: theme.text }]}>Выберите чат слева</Text>
+            <Text style={[styles.emptyRoomSub, { color: theme.textMuted }]}>
+              Личные чаты, группы, заметки круга и избранное «You»
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    const getBubbleTextColor = (isMine, isImage) => {
+      if (isImage) return theme.text;
+      return isMine ? theme.bubbleMineText : theme.bubblePeerText;
+    };
+
+    const getBubbleClockColor = (isMine, isImage) => {
+      if (isImage) return theme.textMuted;
+      if (!theme.isDark && isMine) return theme.textMuted;
+      return !isMine ? theme.textMuted : 'rgba(255,255,255,0.75)';
+    };
+
+    return (
+      <KeyboardAvoidingView
+        style={styles.flex1}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
+      >
+        <View style={styles.flex1}>
+          <View
+            style={[
+              styles.topBar,
+              { backgroundColor: theme.surface, borderBottomColor: theme.border },
+            ]}
+          >
+            {!isWideWeb && (
+              <TouchableOpacity
+                style={styles.backAction}
+                onPress={() => {
+                  setEditingMsg(null);
+                  setReplyingToMsg(null);
+                  setRoomMenuOpen(false);
+                  setChatSearchOpen(false);
+                  setChatSearchText('');
+                  setSubScreen(null);
+                  setActiveChat(null);
+                }}
               >
-                <Text style={[styles.inviteResultText, { color: theme.text }]}>
-                  {createdInviteInfo}
+                <Text style={[styles.backActionText, { color: theme.accentText }]}>←</Text>
+              </TouchableOpacity>
+            )}
+
+            {activeChat.type === 'self' ? (
+              <View style={styles.roomMeta}>
+                <Text style={[styles.roomName, { color: theme.text }]}>You</Text>
+                <Text style={[styles.roomStatus, { color: theme.textMuted }]}>
+                  Избранное · личные заметки
                 </Text>
               </View>
+            ) : activeChat.type === 'group' && currentGroup ? (
+              <TouchableOpacity
+                style={styles.roomMeta}
+                onPress={() => setGroupMembersModalOpen(true)}
+              >
+                <Text style={[styles.roomName, { color: theme.text }]}>
+                  {currentGroup.title}
+                </Text>
+                <Text style={[styles.roomStatus, { color: theme.textMuted }]}>
+                  {currentGroup.members.length} участников ·{' '}
+                  {isCurrentUserGroupAdmin ? 'админ' : 'участник'}
+                </Text>
+              </TouchableOpacity>
+            ) : livePeer ? (
+              <TouchableOpacity
+                style={styles.roomHeaderPeerRow}
+                onPress={() => setInspectedUser(livePeer)}
+              >
+                <AvatarCircle user={livePeer} theme={theme} size={36} />
+                <View style={styles.roomMeta}>
+                  <Text style={[styles.roomName, { color: theme.text }]}>
+                    {livePeer.display_name}
+                  </Text>
+                  <Text style={[styles.roomStatus, { color: theme.textMuted }]}>
+                    @{livePeer.login || normalizeId(livePeer.user_id)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             ) : null}
 
             <TouchableOpacity
-              style={[styles.exitButton, { backgroundColor: theme.dangerBg }]}
-              onPress={onLogout}
+              style={styles.threeDotsBtn}
+              onPress={() => setRoomMenuOpen((v) => !v)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={[styles.exitButtonText, { color: theme.dangerText }]}>Выйти из аккаунта</Text>
+              <Text style={[styles.threeDotsText, { color: theme.text }]}>⋮</Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
-      )}
 
-      {!subScreen && (
-        <View
-          style={[
-            styles.dockNav,
-            { backgroundColor: theme.surface, borderTopColor: theme.border },
-          ]}
-        >
-          <TouchableOpacity style={styles.dockItem} onPress={() => setTab('profile')}>
-            <Text
+          {roomMenuOpen && (
+            <View
               style={[
-                styles.dockLabel,
-                { color: tab === 'profile' ? theme.accentText : theme.textMuted },
+                styles.compactRoomMenu,
+                { backgroundColor: theme.surface, borderColor: theme.border },
               ]}
             >
-              Настройки
-            </Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.compactMenuItem}
+                onPress={() => {
+                  setRoomMenuOpen(false);
+                  setChatSearchOpen(true);
+                }}
+              >
+                <Text style={[styles.compactMenuLabel, { color: theme.text }]}>Поиск по чату</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity style={styles.dockItem} onPress={() => setTab('search')}>
-            <Text
+              <View style={[styles.rowDivider, { backgroundColor: theme.border }]} />
+
+              <TouchableOpacity
+                style={styles.compactMenuItem}
+                onPress={() => {
+                  setRoomMenuOpen(false);
+                  clearRoomForMe(activeRoomId, messages);
+                }}
+              >
+                <Text style={[styles.compactMenuLabel, { color: theme.dangerText }]}>
+                  Очистить чат
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {chatSearchOpen && (
+            <View
               style={[
-                styles.dockLabel,
-                { color: tab === 'search' ? theme.accentText : theme.textMuted },
+                styles.chatSearchBar,
+                { backgroundColor: theme.surface, borderBottomColor: theme.border },
               ]}
             >
-              Поиск
-            </Text>
-          </TouchableOpacity>
+              <TextInput
+                style={[
+                  styles.chatSearchInput,
+                  { backgroundColor: theme.surfaceAlt, borderColor: theme.border, color: theme.text },
+                ]}
+                placeholder="Поиск в переписке..."
+                placeholderTextColor={theme.textMuted}
+                value={chatSearchText}
+                onChangeText={setChatSearchText}
+                autoFocus
+              />
+              <TouchableOpacity
+                onPress={() => {
+                  setChatSearchText('');
+                  setChatSearchOpen(false);
+                }}
+              >
+                <Text style={[styles.pinnedUnpinText, { color: theme.textMuted }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
-          <TouchableOpacity style={styles.dockItem} onPress={() => setTab('chats')}>
-            <Text
+          {activePinnedMsg && (
+            <View
               style={[
-                styles.dockLabel,
-                { color: tab === 'chats' ? theme.accentText : theme.textMuted },
+                styles.pinnedBanner,
+                {
+                  backgroundColor: theme.surfaceAlt,
+                  borderBottomColor: theme.border,
+                  borderLeftColor: theme.accent,
+                },
               ]}
             >
-              Чаты
-            </Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.flex1}
+                onPress={() => {
+                  const idx = visibleMessages.findIndex((m) => m.id === activePinnedMsg.id);
+                  if (idx >= 0) {
+                    listRef.current?.scrollToIndex({ index: idx, animated: true });
+                  }
+                }}
+              >
+                <Text style={[styles.pinnedTitle, { color: theme.accentText }]}>
+                  Закреплённое ({safePinIdx + 1}/{pinnedMessagesList.length})
+                </Text>
+                <Text style={[styles.pinnedPreview, { color: theme.text }]} numberOfLines={1}>
+                  {getPreviewLabel(activePinnedMsg.body)}
+                </Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity style={styles.dockItem} onPress={() => setTab('notes')}>
-            <Text
+              {pinnedMessagesList.length > 1 && (
+                <TouchableOpacity
+                  style={[styles.pinCycleBtn, { backgroundColor: theme.accentSoft }]}
+                  onPress={() =>
+                    setActivePinIndexByRoom((prev) => ({
+                      ...prev,
+                      [activeRoomId]: safePinIdx + 1,
+                    }))
+                  }
+                >
+                  <Text style={[styles.pinCycleText, { color: theme.accentText }]}>След.</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity onPress={() => togglePinMessage(activePinnedMsg.id)}>
+                <Text style={[styles.pinnedUnpinText, { color: theme.textMuted }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={[styles.flex1, { backgroundColor: theme.bg }]}>
+            {CHAT_BG_SOURCE ? (
+              <ImageBackground
+                source={CHAT_BG_SOURCE}
+                style={styles.flex1}
+                imageStyle={{ opacity: theme.isDark ? 0.25 : 0.14 }}
+                resizeMode="cover"
+              >
+                <FlatList
+                  ref={listRef}
+                  style={styles.flex1}
+                  data={visibleMessages}
+                  keyExtractor={(item) => String(item.id)}
+                  contentContainerStyle={styles.messagesPad}
+                  keyboardShouldPersistTaps="handled"
+                  onScrollToIndexFailed={() => {
+                    listRef.current?.scrollToEnd({ animated: true });
+                  }}
+                  renderItem={({ item, index }) => {
+                    const senderNorm = normalizeId(item.sender_id);
+                    const isMine = activeChat.type === 'self' || senderNorm === myId;
+                    const isSenderAdmin =
+                      activeChat.type === 'group' && currentGroup?.admins?.includes(senderNorm);
+
+                    const isLastMine =
+                      activeChat.type === 'peer' &&
+                      isMine &&
+                      index ===
+                        visibleMessages
+                          .map((m) => normalizeId(m.sender_id))
+                          .lastIndexOf(myId);
+
+                    const showReadReceipt =
+                      isLastMine &&
+                      !profile.hide_read_receipts &&
+                      !livePeer?.hide_read_receipts &&
+                      Boolean(item.read_at);
+
+                    const parsed = parseRichBody(item.body);
+                    const isImage = parsed.kind === 'image';
+                    const reactionsForMsg = msgReactions[item.id] || [];
+
+                    return (
+                      <View style={styles.msgSlot}>
+                        <TouchableOpacity
+                          activeOpacity={0.9}
+                          onPress={() => handleMessagePress(item)}
+                          onLongPress={() => openMessageMenu(item)}
+                          style={[
+                            styles.msgBubble,
+                            isImage && styles.photoBubbleWrap,
+                            isMine
+                              ? {
+                                  backgroundColor: isImage ? theme.surface : theme.bubbleMine,
+                                  alignSelf: 'flex-end',
+                                  borderBottomRightRadius: 5,
+                                  borderColor:
+                                    !theme.isDark && !isImage
+                                      ? theme.border
+                                      : isImage
+                                      ? theme.accent
+                                      : 'transparent',
+                                  borderWidth: !theme.isDark && !isImage ? 1 : isImage ? 1.5 : 0,
+                                }
+                              : {
+                                  backgroundColor: isImage ? theme.surface : theme.bubblePeer,
+                                  alignSelf: 'flex-start',
+                                  borderBottomLeftRadius: 5,
+                                  borderColor: theme.border,
+                                  borderWidth: 1,
+                                },
+                          ]}
+                        >
+                          {!isMine && activeChat.type === 'group' && (
+                            <Text style={[styles.msgAuthor, { color: theme.accentText }]}>
+                              {item.sender}
+                              {isSenderAdmin ? ' · админ' : ''}
+                            </Text>
+                          )}
+
+                          {activeChat.type === 'group' && isMine && isSenderAdmin && (
+                            <Text style={[styles.mineAdminTag, { color: theme.accentText }]}>
+                              админ
+                            </Text>
+                          )}
+
+                          {parsed.forwardedFrom ? (
+                            <Text
+                              style={[
+                                styles.forwardedTag,
+                                {
+                                  color:
+                                    isImage || !isMine || !theme.isDark
+                                      ? theme.accentText
+                                      : 'rgba(255,255,255,0.88)',
+                                },
+                              ]}
+                            >
+                              Переслано от {parsed.forwardedFrom}
+                            </Text>
+                          ) : null}
+
+                          {parsed.replyTo ? (
+                            <View
+                              style={[
+                                styles.replyQuoteBox,
+                                {
+                                  backgroundColor:
+                                    !theme.isDark || !isMine
+                                      ? theme.surfaceAlt
+                                      : 'rgba(255,255,255,0.14)',
+                                  borderLeftColor: theme.accent,
+                                },
+                              ]}
+                            >
+                              <Text style={[styles.replyQuoteSender, { color: theme.accentText }]}>
+                                {parsed.replyTo.sender}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.replyQuoteText,
+                                  {
+                                    color:
+                                      !theme.isDark || !isMine
+                                        ? theme.textMuted
+                                        : 'rgba(255,255,255,0.9)',
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {parsed.replyTo.preview}
+                              </Text>
+                            </View>
+                          ) : null}
+
+                          {isImage ? (
+                            <View style={styles.framedPhotoBox}>
+                              <Image
+                                source={{ uri: parsed.meta.uri }}
+                                style={styles.framedPhotoImg}
+                                resizeMode="cover"
+                              />
+                              {parsed.text ? (
+                                <Text style={[styles.photoCaption, { color: theme.text }]}>
+                                  {parsed.text}
+                                </Text>
+                              ) : null}
+                            </View>
+                          ) : parsed.kind === 'file' ? (
+                            <View style={styles.fileCardRow}>
+                              <Text
+                                style={[
+                                  styles.fileExtBadge,
+                                  {
+                                    backgroundColor: theme.accentSoft,
+                                    color: theme.accentText,
+                                  },
+                                ]}
+                              >
+                                {(parsed.meta.ext || 'FILE').toUpperCase()}
+                              </Text>
+                              <View style={styles.flex1}>
+                                <Text
+                                  style={[
+                                    styles.fileNameText,
+                                    { color: getBubbleTextColor(isMine, false) },
+                                  ]}
+                                  numberOfLines={2}
+                                >
+                                  {parsed.text}
+                                </Text>
+                              </View>
+                            </View>
+                          ) : parsed.kind === 'voice' ? (
+                            <VoiceMessageBubble
+                              uri={parsed.meta?.uri}
+                              durationSec={parsed.meta?.duration}
+                              isMine={isMine}
+                              theme={theme}
+                              msgId={item.id}
+                              activeVoiceId={activeVoiceId}
+                              setActiveVoiceId={setActiveVoiceId}
+                            />
+                          ) : parsed.text.includes('||') ? (
+                            <SpoilerTextRenderer
+                              text={parsed.text}
+                              textColor={getBubbleTextColor(isMine, false)}
+                              theme={theme}
+                              msgId={item.id}
+                            />
+                          ) : (
+                            <Text
+                              style={[
+                                styles.msgText,
+                                { color: getBubbleTextColor(isMine, false) },
+                              ]}
+                            >
+                              {parsed.text}
+                            </Text>
+                          )}
+
+                          <View style={styles.msgFooterRow}>
+                            {Platform.OS === 'web' && (
+                              <TouchableOpacity
+                                onPress={() => openMessageMenu(item)}
+                                style={styles.msgActionTrigger}
+                              >
+                                <Text
+                                  style={[
+                                    styles.msgActionTriggerText,
+                                    { color: getBubbleClockColor(isMine, isImage) },
+                                  ]}
+                                >
+                                  •••
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            <Text
+                              style={[
+                                styles.msgClock,
+                                { color: getBubbleClockColor(isMine, isImage) },
+                              ]}
+                            >
+                              {formatTime(item.created_at)}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+
+                        {reactionsForMsg.length > 0 && (
+                          <View
+                            style={[
+                              styles.msgReactionPill,
+                              {
+                                backgroundColor: theme.surface,
+                                borderColor: theme.border,
+                                alignSelf: isMine ? 'flex-end' : 'flex-start',
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.msgReactionText, { color: theme.text }]}>
+                              {reactionsForMsg.map((r) => r.emoji).join(' ')}
+                            </Text>
+                          </View>
+                        )}
+
+                        {showReadReceipt && (
+                          <Text style={[styles.seenLabel, { color: theme.accentText }]}>
+                            {formatSeenAgo(item.read_at)}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  }}
+                />
+              </ImageBackground>
+            ) : (
+              <FlatList
+                ref={listRef}
+                style={styles.flex1}
+                data={visibleMessages}
+                keyExtractor={(item) => String(item.id)}
+                contentContainerStyle={styles.messagesPad}
+                keyboardShouldPersistTaps="handled"
+                onScrollToIndexFailed={() => {
+                  listRef.current?.scrollToEnd({ animated: true });
+                }}
+                renderItem={({ item, index }) => {
+                  const senderNorm = normalizeId(item.sender_id);
+                  const isMine = activeChat.type === 'self' || senderNorm === myId;
+                  const isLastMine =
+                    activeChat.type === 'peer' &&
+                    isMine &&
+                    index ===
+                      visibleMessages.map((m) => normalizeId(m.sender_id)).lastIndexOf(myId);
+                  const showReadReceipt =
+                    isLastMine &&
+                    !profile.hide_read_receipts &&
+                    !livePeer?.hide_read_receipts &&
+                    Boolean(item.read_at);
+                  const parsed = parseRichBody(item.body);
+
+                  return (
+                    <View style={styles.msgSlot}>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => handleMessagePress(item)}
+                        onLongPress={() => openMessageMenu(item)}
+                        style={[
+                          styles.msgBubble,
+                          isMine
+                            ? {
+                                backgroundColor: theme.bubbleMine,
+                                alignSelf: 'flex-end',
+                                borderBottomRightRadius: 5,
+                              }
+                            : {
+                                backgroundColor: theme.bubblePeer,
+                                alignSelf: 'flex-start',
+                                borderBottomLeftRadius: 5,
+                                borderColor: theme.border,
+                                borderWidth: 1,
+                              },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.msgText,
+                            { color: getBubbleTextColor(isMine, false) },
+                          ]}
+                        >
+                          {parsed.text}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.msgClock,
+                            { color: getBubbleClockColor(isMine, false) },
+                          ]}
+                        >
+                          {formatTime(item.created_at)}
+                        </Text>
+                      </TouchableOpacity>
+                      {showReadReceipt && (
+                        <Text style={[styles.seenLabel, { color: theme.accentText }]}>
+                          {formatSeenAgo(item.read_at)}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                }}
+              />
+            )}
+          </View>
+
+          {replyingToMsg && !editingMsg && (
+            <View
               style={[
-                styles.dockLabel,
-                { color: tab === 'notes' ? theme.accentText : theme.textMuted },
+                styles.editBar,
+                { backgroundColor: theme.surfaceAlt, borderTopColor: theme.border },
               ]}
             >
-              Заметки
-            </Text>
-          </TouchableOpacity>
+              <View style={styles.flex1}>
+                <Text style={[styles.editBarLabel, { color: theme.accentText }]}>
+                  Ответ: {replyingToMsg.sender}
+                </Text>
+                <Text style={[styles.editBarPreview, { color: theme.textMuted }]} numberOfLines={1}>
+                  {getPreviewLabel(replyingToMsg.body)}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setReplyingToMsg(null)}>
+                <Text style={[styles.pinnedUnpinText, { color: theme.textMuted }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {editingMsg && (
+            <View
+              style={[
+                styles.editBar,
+                { backgroundColor: theme.surfaceAlt, borderTopColor: theme.border },
+              ]}
+            >
+              <View style={styles.flex1}>
+                <Text style={[styles.editBarLabel, { color: theme.accentText }]}>
+                  Редактирование сообщения
+                </Text>
+                <Text style={[styles.editBarPreview, { color: theme.textMuted }]} numberOfLines={1}>
+                  {getPreviewLabel(editingMsg.body)}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setEditingMsg(null);
+                  setText('');
+                }}
+              >
+                <Text style={[styles.pinnedUnpinText, { color: theme.textMuted }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View
+            style={[
+              styles.composerBar,
+              { backgroundColor: theme.surface, borderTopColor: theme.border },
+            ]}
+          >
+            {Platform.OS === 'web' && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: 'none' }}
+                onChange={handleWebFileChange}
+              />
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.attachBtn,
+                { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+              ]}
+              onPress={pickPhotoForChat}
+            >
+              <Text style={[styles.attachBtnText, { color: theme.accentText }]}>Фото</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.attachBtn,
+                { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+              ]}
+              onPress={pickFileForChat}
+            >
+              <Text style={[styles.attachBtnText, { color: theme.accentText }]}>Файл</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.attachBtn,
+                { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+              ]}
+              onPress={applySpoilerToInput}
+            >
+              <Text style={[styles.attachBtnText, { color: theme.accentText }]}>||</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              style={[
+                styles.composerInput,
+                {
+                  backgroundColor: theme.surfaceAlt,
+                  borderColor: theme.border,
+                  color: theme.text,
+                },
+              ]}
+              placeholder={
+                isRecording
+                  ? `Запись голоса... ${formatDuration(recordSeconds)}`
+                  : activeChat.type === 'self'
+                  ? 'Написать в You...'
+                  : 'Написать сообщение (Enter — отправить)...'
+              }
+              placeholderTextColor={isRecording ? '#f87171' : theme.textMuted}
+              value={text}
+              onChangeText={setText}
+              onFocus={() => {
+                setTimeout(() => {
+                  listRef.current?.scrollToEnd({ animated: true });
+                }, 120);
+              }}
+              onSelectionChange={(e) => setTextSelection(e.nativeEvent.selection)}
+              onKeyPress={(e) => {
+                if (
+                  Platform.OS === 'web' &&
+                  e.nativeEvent?.key === 'Enter' &&
+                  !e.nativeEvent?.shiftKey
+                ) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              returnKeyType="send"
+              blurOnSubmit={false}
+              onSubmitEditing={sendMessage}
+              editable={!isRecording}
+              multiline
+            />
+
+            {text.trim().length > 0 ? (
+              <TouchableOpacity
+                style={[styles.sendCircle, { backgroundColor: theme.accent }]}
+                onPress={sendMessage}
+              >
+                <Text style={styles.sendArrow}>{editingMsg ? '✓' : '↑'}</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.voiceRecordBtn,
+                  { backgroundColor: isRecording ? '#dc2626' : theme.accent },
+                ]}
+                onPress={isRecording ? stopAndSendVoiceRecording : startVoiceRecording}
+              >
+                <Text style={styles.voiceRecordBtnText}>
+                  {isRecording ? 'Стоп' : 'Голос'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  };
+
+  return (
+    <SafeAreaView
+      style={[styles.root, { backgroundColor: theme.bg }]}
+      edges={subScreen === 'room' ? ['top'] : ['top', 'bottom']}
+    >
+      {isWideWeb ? (
+        <View style={styles.webSplitRoot}>
+          <View
+            style={[
+              styles.webLeftPane,
+              { backgroundColor: theme.surface, borderRightColor: theme.border },
+            ]}
+          >
+            <View style={styles.flex1}>{renderSidebarContent()}</View>
+
+            <View
+              style={[
+                styles.dockNav,
+                { backgroundColor: theme.surface, borderTopColor: theme.border },
+              ]}
+            >
+              <TouchableOpacity
+                style={styles.dockItem}
+                onPress={() => {
+                  setSubScreen(null);
+                  setTab('profile');
+                }}
+              >
+                <Text
+                  style={[
+                    styles.dockLabel,
+                    { color: !subScreen && tab === 'profile' ? theme.accentText : theme.textMuted },
+                  ]}
+                >
+                  Настройки
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.dockItem}
+                onPress={() => {
+                  setSubScreen(null);
+                  setTab('search');
+                }}
+              >
+                <Text
+                  style={[
+                    styles.dockLabel,
+                    { color: !subScreen && tab === 'search' ? theme.accentText : theme.textMuted },
+                  ]}
+                >
+                  Поиск
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.dockItem}
+                onPress={() => {
+                  setSubScreen(null);
+                  setTab('chats');
+                }}
+              >
+                <Text
+                  style={[
+                    styles.dockLabel,
+                    { color: !subScreen && tab === 'chats' ? theme.accentText : theme.textMuted },
+                  ]}
+                >
+                  Чаты
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.dockItem}
+                onPress={() => {
+                  setSubScreen(null);
+                  setTab('notes');
+                }}
+              >
+                <Text
+                  style={[
+                    styles.dockLabel,
+                    { color: !subScreen && tab === 'notes' ? theme.accentText : theme.textMuted },
+                  ]}
+                >
+                  Заметки
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.webRightPane}>{renderChatPane()}</View>
+        </View>
+      ) : subScreen === 'room' && activeChat ? (
+        renderChatPane()
+      ) : (
+        <View style={styles.flex1}>
+          <View style={styles.flex1}>{renderSidebarContent()}</View>
+          {!subScreen && (
+            <View
+              style={[
+                styles.dockNav,
+                { backgroundColor: theme.surface, borderTopColor: theme.border },
+              ]}
+            >
+              <TouchableOpacity style={styles.dockItem} onPress={() => setTab('profile')}>
+                <Text
+                  style={[
+                    styles.dockLabel,
+                    { color: tab === 'profile' ? theme.accentText : theme.textMuted },
+                  ]}
+                >
+                  Настройки
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.dockItem} onPress={() => setTab('search')}>
+                <Text
+                  style={[
+                    styles.dockLabel,
+                    { color: tab === 'search' ? theme.accentText : theme.textMuted },
+                  ]}
+                >
+                  Поиск
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.dockItem} onPress={() => setTab('chats')}>
+                <Text
+                  style={[
+                    styles.dockLabel,
+                    { color: tab === 'chats' ? theme.accentText : theme.textMuted },
+                  ]}
+                >
+                  Чаты
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.dockItem} onPress={() => setTab('notes')}>
+                <Text
+                  style={[
+                    styles.dockLabel,
+                    { color: tab === 'notes' ? theme.accentText : theme.textMuted },
+                  ]}
+                >
+                  Заметки
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       )}
 
@@ -4768,7 +4848,7 @@ function MessengerApp({
                 </View>
 
                 <View style={styles.inspectCenter}>
-                  <AvatarCircle user={inspectedUser} theme={theme} size={86} />
+                  <AvatarCircle user={inspectedUser} theme={theme} size={82} />
                   <Text style={[styles.inspectName, { color: theme.text }]}>
                     {inspectedUser.display_name}
                   </Text>
@@ -4915,7 +4995,7 @@ function MessengerApp({
               ]}
             >
               <View style={styles.igNoteCardHeader}>
-                <AvatarCircle user={selectedNoteUser} theme={theme} size={46} />
+                <AvatarCircle user={selectedNoteUser} theme={theme} size={44} />
                 <View style={styles.flex1}>
                   <Text style={[styles.peerName, { color: theme.text }]}>
                     {selectedNoteUser.display_name}
@@ -4969,6 +5049,7 @@ function MessengerApp({
                   placeholderTextColor={theme.textMuted}
                   value={noteQuickReply}
                   onChangeText={setNoteQuickReply}
+                  onSubmitEditing={sendNoteReply}
                 />
                 <TouchableOpacity
                   style={[styles.sendCircle, { backgroundColor: theme.accent }]}
@@ -4987,11 +5068,8 @@ function MessengerApp({
 
 export default function App() {
   const [themeMode, setThemeMode] = useState('dark');
-  const [booting, setBooting] = useState(true);
-  const [sessionProfile, setSessionProfile] = useState(rt.sessionProfile || null);
+  const [sessionProfile, setSessionProfile] = useState(null);
   const [needsForceSetup, setNeedsForceSetup] = useState(false);
-  const [pinConfig, setPinConfig] = useState({ enabled: false, pin: '' });
-  const [pinUnlocked, setPinUnlocked] = useState(true);
 
   const theme = THEMES[themeMode] || THEMES.dark;
 
@@ -4999,240 +5077,45 @@ export default function App() {
     setThemeMode((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  const resolvePinConfig = async (prof) => {
-    const uid = normalizeId(prof?.user_id);
-    const runtimePin = uid ? rt.pinByUser.get(uid) : null;
-    const localRaw = uid ? await localStore.getItem(`${LOCAL_PIN_KEY_PREFIX}${uid}`) : null;
-
-    let localParsed = null;
-    if (localRaw) {
-      try {
-        localParsed = JSON.parse(localRaw);
-      } catch (_) {}
-    }
-
-    const dbEnabled =
-      prof?.pin_enabled !== undefined && prof?.pin_enabled !== null
-        ? Boolean(prof.pin_enabled)
-        : null;
-    const dbPin = cleanPinDigits(prof?.app_pin || '');
-
-    const enabled =
-      runtimePin?.enabled !== undefined
-        ? Boolean(runtimePin.enabled)
-        : dbEnabled !== null
-        ? dbEnabled
-        : Boolean(localParsed?.enabled);
-
-    const pin =
-      cleanPinDigits(runtimePin?.pin || '') ||
-      dbPin ||
-      cleanPinDigits(localParsed?.pin || '');
-
-    return { enabled, pin };
-  };
-
-  const persistSessionProfile = async (prof) => {
-    if (!prof) return;
-    rt.sessionUserId = prof.user_id;
-    rt.sessionProfile = prof;
-    await localStore.setItem(SESSION_USER_ID_KEY, prof.user_id);
-    try {
-      await localStore.setItem(SESSION_PROFILE_KEY, JSON.stringify(prof));
-    } catch (_) {}
-  };
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const savedId = (await localStore.getItem(SESSION_USER_ID_KEY)) || rt.sessionUserId;
-        const savedProfRaw = await localStore.getItem(SESSION_PROFILE_KEY);
-
-        let baseProf = rt.sessionProfile || null;
-        if (!baseProf && savedProfRaw) {
-          try {
-            baseProf = JSON.parse(savedProfRaw);
-          } catch (_) {}
-        }
-
-        if (savedId) {
-          const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('user_id', savedId)
-            .maybeSingle();
-
-          if (data) {
-            baseProf = {
-              ...(baseProf || {}),
-              ...data,
-              phone: data.phone || baseProf?.phone || '',
-            };
-          }
-        }
-
-        if (baseProf && mounted) {
-          await persistSessionProfile(baseProf);
-          setSessionProfile(baseProf);
-          const mustSetup =
-            Boolean(baseProf.must_change_password) || !Boolean(baseProf.is_activated);
-          setNeedsForceSetup(mustSetup);
-          const cfg = await resolvePinConfig(baseProf);
-          setPinConfig(cfg);
-          setPinUnlocked(!(cfg.enabled && cfg.pin.length === 4));
-        }
-      } catch (_) {}
-      if (mounted) setBooting(false);
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && sessionProfile && !needsForceSetup) {
-        const clean = cleanPinDigits(pinConfig.pin);
-        if (pinConfig.enabled && clean.length === 4) {
-          setPinUnlocked(false);
-        }
-      }
-    });
-    return () => sub.remove();
-  }, [sessionProfile, needsForceSetup, pinConfig]);
-
-  const handleLoggedIn = async (prof) => {
-    await persistSessionProfile(prof);
+  const handleLoggedIn = (prof) => {
     setSessionProfile(prof);
-    const mustSetup =
-      Boolean(prof.must_change_password) || !Boolean(prof.is_activated);
-    setNeedsForceSetup(mustSetup);
-    const cfg = await resolvePinConfig(prof);
-    setPinConfig(cfg);
-    setPinUnlocked(!(cfg.enabled && cfg.pin.length === 4));
-  };
-
-  const handleSavePinConfig = async (nextConfig) => {
-    const cleanPin = cleanPinDigits(nextConfig.pin);
-    const normalized = {
-      enabled: Boolean(nextConfig.enabled),
-      pin: cleanPin,
-    };
-
-    setPinConfig(normalized);
-    setPinUnlocked(true);
-
-    if (!sessionProfile) return;
-    const uid = normalizeId(sessionProfile.user_id);
-    rt.pinByUser.set(uid, normalized);
-    await localStore.setItem(`${LOCAL_PIN_KEY_PREFIX}${uid}`, JSON.stringify(normalized));
-
-    const updatedProf = {
-      ...sessionProfile,
-      pin_enabled: normalized.enabled,
-      app_pin: normalized.pin || null,
-    };
-    setSessionProfile(updatedProf);
-    await persistSessionProfile(updatedProf);
-
-    await supabase
-      .from('profiles')
-      .update({
-        pin_enabled: normalized.enabled,
-        app_pin: normalized.pin || null,
-      })
-      .eq('user_id', sessionProfile.user_id);
-  };
-
-  const handleLogout = async () => {
-    setNeedsForceSetup(false);
-    setPinUnlocked(true);
-    setSessionProfile(null);
-    rt.sessionUserId = null;
-    rt.sessionProfile = null;
-    await localStore.removeItem(SESSION_USER_ID_KEY);
-    await localStore.removeItem(SESSION_PROFILE_KEY);
-  };
-
-  const handleForgotPin = async () => {
-    const uid = normalizeId(sessionProfile?.user_id);
-    const nextOff = { enabled: false, pin: '' };
-    setPinConfig(nextOff);
-    setPinUnlocked(true);
-    if (uid) {
-      rt.pinByUser.set(uid, nextOff);
-      await localStore.setItem(`${LOCAL_PIN_KEY_PREFIX}${uid}`, JSON.stringify(nextOff));
-    }
-    if (sessionProfile?.user_id) {
-      await supabase
-        .from('profiles')
-        .update({ pin_enabled: false, app_pin: null })
-        .eq('user_id', sessionProfile.user_id);
-    }
-    alert('PIN-код сброшен. Включить его снова можно в Настройках.');
-  };
-
-  if (booting) {
-    return (
-      <SafeAreaProvider>
-        <View style={[styles.bootScreen, { backgroundColor: theme.bg }]}>
-          <Text style={[styles.bootTitle, { color: theme.text }]}>Загрузка...</Text>
-        </View>
-      </SafeAreaProvider>
+    setNeedsForceSetup(
+      Boolean(prof.must_change_password) || !Boolean(prof.is_activated)
     );
-  }
+  };
 
-  const normalizedPin = cleanPinDigits(pinConfig.pin);
-  const requiresPinLock =
-    Boolean(sessionProfile) &&
-    !needsForceSetup &&
-    Boolean(pinConfig.enabled) &&
-    normalizedPin.length === 4 &&
-    !pinUnlocked;
+  const handleLogout = () => {
+    setNeedsForceSetup(false);
+    setSessionProfile(null);
+  };
 
   return (
     <SafeAreaProvider>
       {sessionProfile ? (
-        requiresPinLock ? (
-          <PinLockScreen
+        <>
+          <MessengerApp
+            initialProfile={sessionProfile}
             theme={theme}
-            profile={sessionProfile}
-            expectedPin={normalizedPin}
-            onUnlock={() => setPinUnlocked(true)}
-            onForgotPin={handleForgotPin}
-          />
-        ) : (
-          <>
-            <MessengerApp
-              initialProfile={sessionProfile}
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              onProfileUpdated={(updated) => {
-                setSessionProfile(updated);
-                persistSessionProfile(updated);
-                if (updated.is_activated && !updated.must_change_password) {
-                  setNeedsForceSetup(false);
-                }
-              }}
-              onLogout={handleLogout}
-              pinConfig={{ enabled: pinConfig.enabled, pin: normalizedPin }}
-              onSavePinConfig={handleSavePinConfig}
-            />
-            <ForceSetupModal
-              visible={needsForceSetup}
-              profile={sessionProfile}
-              theme={theme}
-              onCompleted={async (updated) => {
-                setSessionProfile(updated);
+            onToggleTheme={toggleTheme}
+            onProfileUpdated={(updated) => {
+              setSessionProfile(updated);
+              if (updated.is_activated && !updated.must_change_password) {
                 setNeedsForceSetup(false);
-                await persistSessionProfile(updated);
-              }}
-              onCancel={handleLogout}
-            />
-          </>
-        )
+              }
+            }}
+            onLogout={handleLogout}
+          />
+          <ForceSetupModal
+            visible={needsForceSetup}
+            profile={sessionProfile}
+            theme={theme}
+            onCompleted={(updated) => {
+              setSessionProfile(updated);
+              setNeedsForceSetup(false);
+            }}
+            onCancel={handleLogout}
+          />
+        </>
       ) : (
         <LoginScreen
           theme={theme}
@@ -5248,51 +5131,35 @@ const styles = StyleSheet.create({
   flex1: { flex: 1 },
   root: { flex: 1 },
 
-  bootScreen: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  bootTitle: { fontSize: 16, fontWeight: '600' },
+  webSplitRoot: { flex: 1, flexDirection: 'row' },
+  webLeftPane: { width: 380, maxWidth: '42%', borderRightWidth: 1, flexDirection: 'column' },
+  webRightPane: { flex: 1, flexDirection: 'column' },
+
+  emptyRoomPane: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  emptyRoomBadge: {
+    paddingHorizontal: 22,
+    paddingVertical: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 6,
+  },
+  emptyRoomTitle: { fontSize: 16, fontWeight: '700' },
+  emptyRoomSub: { fontSize: 13 },
 
   authScreen: { flex: 1, justifyContent: 'space-between', padding: 20 },
   authTopRow: { flexDirection: 'row', justifyContent: 'flex-end' },
   authBox: {
-    borderRadius: 18,
-    padding: 20,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+    borderRadius: 16,
+    padding: 22,
     gap: 12,
     borderWidth: 1,
   },
   authHeading: { fontSize: 22, fontWeight: '700' },
   authCaption: { fontSize: 13, lineHeight: 19, marginBottom: 4 },
-
-  pinScreen: { flex: 1, justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 28 },
-  pinTopBlock: { alignItems: 'center', gap: 8, marginTop: 12 },
-  pinTitle: { fontSize: 20, fontWeight: '700', marginTop: 4 },
-  pinSub: { fontSize: 13 },
-  pinDotsRow: { flexDirection: 'row', gap: 16, marginTop: 14 },
-  pinDot: { width: 16, height: 16, borderRadius: 8, borderWidth: 2 },
-  pinErrorText: { fontSize: 13, fontWeight: '600', marginTop: 4 },
-  pinPadGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 14,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-  pinKeyCircle: {
-    width: '28%',
-    aspectRatio: 1.25,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pinKeyDigit: { fontSize: 24, fontWeight: '700' },
-  pinKeyGhost: {
-    width: '28%',
-    aspectRatio: 1.25,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pinKeyGhostText: { fontSize: 14, fontWeight: '700' },
 
   callRoot: { flex: 1, justifyContent: 'space-between', padding: 24 },
   callCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
@@ -5315,15 +5182,15 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 12, fontWeight: '600' },
   field: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingVertical: 10,
     fontSize: 15,
   },
   bioField: { minHeight: 72, textAlignVertical: 'top' },
 
   mainButton: {
-    borderRadius: 12,
+    borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
   },
@@ -5335,14 +5202,14 @@ const styles = StyleSheet.create({
   clearNoteBtn: {
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 10,
   },
   clearNoteText: { fontWeight: '700', fontSize: 14 },
 
   secondaryCallBtn: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -5352,7 +5219,8 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    padding: 20,
   },
   centerModalBackdrop: {
     flex: 1,
@@ -5361,8 +5229,10 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   setupSheet: {
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    width: '100%',
+    maxWidth: 460,
+    alignSelf: 'center',
+    borderRadius: 16,
     padding: 18,
     gap: 10,
   },
@@ -5382,7 +5252,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
   },
   memberManageRow: {
@@ -5390,7 +5260,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 10,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     gap: 8,
   },
@@ -5404,13 +5274,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     gap: 8,
   },
-  topBarTitle: { fontSize: 20, fontWeight: '700' },
+  topBarTitle: { fontSize: 19, fontWeight: '700' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
 
   pillAction: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 10,
+    borderRadius: 8,
   },
   pillActionText: { fontWeight: '700', fontSize: 12 },
 
@@ -5422,8 +5292,8 @@ const styles = StyleSheet.create({
     top: 54,
     right: 12,
     zIndex: 30,
-    width: 156,
-    borderRadius: 11,
+    width: 164,
+    borderRadius: 10,
     borderWidth: 1,
     paddingVertical: 2,
   },
@@ -5441,7 +5311,7 @@ const styles = StyleSheet.create({
   chatSearchInput: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 14,
@@ -5476,8 +5346,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     borderWidth: 1,
   },
   archiveBannerTitle: { fontSize: 14, fontWeight: '600' },
@@ -5487,11 +5357,11 @@ const styles = StyleSheet.create({
   backActionText: { fontWeight: '700', fontSize: 18 },
   roomHeaderPeerRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   roomMeta: { flex: 1 },
-  roomName: { fontSize: 16, fontWeight: '700' },
+  roomName: { fontSize: 15, fontWeight: '700' },
   roomStatus: { fontSize: 11, marginTop: 1 },
 
   igNotesStrip: {
-    maxHeight: 142,
+    maxHeight: 138,
     borderBottomWidth: 1,
   },
   igNotesContent: {
@@ -5502,16 +5372,16 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   igNoteColumn: {
-    width: 86,
+    width: 84,
     alignItems: 'center',
   },
   igBubble: {
-    borderRadius: 12,
+    borderRadius: 11,
     paddingHorizontal: 8,
     paddingVertical: 6,
     marginBottom: 6,
-    minWidth: 74,
-    maxWidth: 94,
+    minWidth: 72,
+    maxWidth: 92,
     borderWidth: 1,
   },
   igBubbleText: {
@@ -5524,17 +5394,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     marginTop: 5,
-    maxWidth: 84,
+    maxWidth: 82,
   },
 
-  listPad: { padding: 12, gap: 8, paddingBottom: 24 },
-  scrollPad: { padding: 14, gap: 12, paddingBottom: 32 },
-  pageHeading: { fontSize: 21, fontWeight: '700' },
-  groupHeading: { fontSize: 12, fontWeight: '700', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.6 },
+  listPad: { padding: 10, gap: 6, paddingBottom: 20 },
+  scrollPad: { padding: 14, gap: 12, paddingBottom: 28 },
+  pageHeading: { fontSize: 20, fontWeight: '700' },
+  groupHeading: { fontSize: 11, fontWeight: '700', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.6 },
   emptyText: { fontSize: 13, lineHeight: 19 },
 
   surfaceCard: {
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 14,
     gap: 10,
     borderWidth: 1,
@@ -5543,8 +5413,8 @@ const styles = StyleSheet.create({
   peerCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 11,
-    borderRadius: 14,
+    padding: 10,
+    borderRadius: 12,
     gap: 12,
     borderWidth: 1,
   },
@@ -5552,9 +5422,9 @@ const styles = StyleSheet.create({
   peerTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   chatMetaRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   unreadBadge: {
-    minWidth: 21,
-    height: 21,
-    borderRadius: 11,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
@@ -5565,10 +5435,10 @@ const styles = StyleSheet.create({
   peerSub: { fontSize: 13 },
   unregSub: { fontSize: 11, marginTop: 2 },
 
-  messagesPad: { padding: 12, gap: 8, paddingBottom: 16 },
+  messagesPad: { padding: 14, gap: 8, paddingBottom: 18 },
   msgSlot: { gap: 3 },
-  msgBubble: { maxWidth: '80%', paddingHorizontal: 13, paddingVertical: 9, borderRadius: 16 },
-  photoBubbleWrap: { padding: 6, borderRadius: 18 },
+  msgBubble: { maxWidth: '75%', paddingHorizontal: 13, paddingVertical: 9, borderRadius: 14 },
+  photoBubbleWrap: { padding: 6, borderRadius: 16 },
   framedPhotoBox: { gap: 6 },
   framedPhotoImg: { width: 220, height: 220, borderRadius: 12 },
   photoCaption: { fontSize: 14, paddingHorizontal: 4, lineHeight: 19 },
@@ -5590,7 +5460,11 @@ const styles = StyleSheet.create({
   replyQuoteSender: { fontSize: 11, fontWeight: '700' },
   replyQuoteText: { fontSize: 12 },
   msgText: { fontSize: 15, lineHeight: 20 },
-  msgClock: { fontSize: 10, alignSelf: 'flex-end', marginTop: 3 },
+
+  msgFooterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 3 },
+  msgActionTrigger: { paddingHorizontal: 2 },
+  msgActionTriggerText: { fontSize: 11, fontWeight: '700' },
+  msgClock: { fontSize: 10 },
   seenLabel: { alignSelf: 'flex-end', fontSize: 11, fontWeight: '600', marginRight: 4 },
 
   spoilerFlowWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
@@ -5640,15 +5514,15 @@ const styles = StyleSheet.create({
   composerBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 6,
     borderTopWidth: 1,
   },
   attachBtn: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 9,
     height: 38,
-    borderRadius: 11,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -5656,7 +5530,7 @@ const styles = StyleSheet.create({
   attachBtnText: { fontSize: 12, fontWeight: '700' },
   composerInput: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 9,
     fontSize: 15,
@@ -5674,14 +5548,17 @@ const styles = StyleSheet.create({
   voiceRecordBtn: {
     paddingHorizontal: 10,
     height: 38,
-    borderRadius: 12,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   voiceRecordBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
 
   actionMenuCard: {
-    borderRadius: 18,
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+    borderRadius: 16,
     padding: 14,
     gap: 10,
     borderWidth: 1,
@@ -5717,7 +5594,7 @@ const styles = StyleSheet.create({
   menuActionItem: {
     paddingVertical: 11,
     paddingHorizontal: 14,
-    borderRadius: 12,
+    borderRadius: 10,
     alignItems: 'center',
   },
   menuActionLabel: { fontSize: 14, fontWeight: '700' },
@@ -5734,7 +5611,6 @@ const styles = StyleSheet.create({
   galleryBackArrow: { color: '#ffffff', fontSize: 22, fontWeight: '700' },
   galleryAuthor: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
   galleryMeta: { color: '#9ca3af', fontSize: 12, marginTop: 1 },
-  galleryFullImg: { width: SCREEN_WIDTH, height: '72%' },
   galleryCaption: {
     color: '#f3f4f6',
     fontSize: 14,
@@ -5779,7 +5655,7 @@ const styles = StyleSheet.create({
 
   inviteResult: {
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
   },
   inviteResultText: { fontWeight: '600', fontSize: 13, lineHeight: 20 },
@@ -5788,7 +5664,7 @@ const styles = StyleSheet.create({
   settingTitle: { fontSize: 14, fontWeight: '700' },
   settingSub: { fontSize: 12 },
   togglePill: { fontWeight: '700', fontSize: 11, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  exitButton: { marginTop: 6, paddingVertical: 11, borderRadius: 12, alignItems: 'center' },
+  exitButton: { marginTop: 6, paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
   exitButtonText: { fontWeight: '700', fontSize: 14 },
 
   dockNav: {
@@ -5800,7 +5676,10 @@ const styles = StyleSheet.create({
   dockLabel: { fontSize: 13, fontWeight: '700' },
 
   profileInspectCard: {
-    borderRadius: 18,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+    borderRadius: 16,
     padding: 18,
     gap: 14,
     borderWidth: 1,
@@ -5816,7 +5695,7 @@ const styles = StyleSheet.create({
   inspectName: { fontSize: 20, fontWeight: '700', marginTop: 4 },
 
   infoListCard: {
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     overflow: 'hidden',
   },
